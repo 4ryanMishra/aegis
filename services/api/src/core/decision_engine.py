@@ -107,7 +107,8 @@ class DecisionEngine:
         baseline_collateral = round(osm_val * ltv, 2)
         aegis_collateral = round(selected_price * ltv, 2)
         diff = round(baseline_collateral - aegis_collateral, 2)
-        risk_pct = round((diff / max(baseline_collateral, 1e-6)) * 100, 2) if diff != 0 else 0.0
+        # Risk exposure overstatement percentage prevented (only positive when baseline was overstated)
+        risk_pct = round((diff / max(abs(baseline_collateral), 1e-6)) * 100, 2) if diff > 0 else 0.0
 
         collateral = CollateralImpact(
             ltv=round(ltv, 2),

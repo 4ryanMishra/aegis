@@ -42,7 +42,7 @@ class P_DECAggregator:
         # Normalized Dispersion (IQR / Median or StdDev / Mean)
         q75, q25 = np.percentile(prices, [75, 25])
         iqr = q75 - q25
-        norm_dispersion = float(iqr / max(aggregate_val, 1e-6))
+        norm_dispersion = float(iqr / max(abs(aggregate_val), 1e-6))
 
         return DECAggregate(
             value=round(aggregate_val, 2),

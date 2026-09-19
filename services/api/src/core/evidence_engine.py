@@ -46,16 +46,16 @@ class EvidenceEngine:
         dec_val = p_dec.value
         mkt_val = p_market.value
 
-        # Relative deviations
-        d_osm_market = abs(osm_val - mkt_val) / max(mkt_val, 1e-6)
-        d_dec_market = abs(dec_val - mkt_val) / max(mkt_val, 1e-6)
-        d_osm_dec = abs(osm_val - dec_val) / max(dec_val, 1e-6)
+        # Relative deviations (safe against zero/near-zero denominators)
+        d_osm_market = abs(osm_val - mkt_val) / max(abs(mkt_val), 1e-6)
+        d_dec_market = abs(dec_val - mkt_val) / max(abs(mkt_val), 1e-6)
+        d_osm_dec = abs(osm_val - dec_val) / max(abs(dec_val), 1e-6)
 
         # Validator agreement ratio (fraction within 2.5% of P_DEC)
         tolerance = 0.025
         agreeing = sum(
             1 for v in validators
-            if abs(v.estimated_price - dec_val) / max(dec_val, 1e-6) <= tolerance
+            if abs(v.estimated_price - dec_val) / max(abs(dec_val), 1e-6) <= tolerance
         )
         agreement_ratio = agreeing / max(len(validators), 1)
 
