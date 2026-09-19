@@ -1,0 +1,120 @@
+{
+  "benchmark_id": "bench_synthetic_gold_24h_control",
+  "dataset_name": "synthetic_gold_rwa_24h",
+  "dataset_id": "synthetic_gold_rwa_24h",
+  "dataset_status": "SIMULATED",
+  "source": "simulated_ou_market_feed",
+  "sampling_interval_seconds": 60,
+  "horizon_seconds": 3600,
+  "timestamp": 1789853228,
+  "results": [
+    {
+      "methodology_id": "bench_naive_persistence",
+      "methodology_name": "Naive Persistence Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "synthetic_gold_rwa_24h",
+      "dataset_id": "synthetic_gold_rwa_24h",
+      "dataset_status": "SIMULATED",
+      "source": "simulated_ou_market_feed",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1774003600,
+        "end_ts": 1774082740,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 88
+      },
+      "metrics": {
+        "mae": 1.2189,
+        "rmse": 1.5745,
+        "directional_accuracy": 0.0,
+        "mean_percentage_error": 0.5199,
+        "mean_absolute_percentage_error": 1.2431,
+        "prediction_interval_coverage": 0.5114,
+        "sample_count": 88
+      },
+      "assumptions": [
+        "Asset price follows a martingale / random walk with zero expected drift."
+      ],
+      "limitations": [
+        "Cannot capture mean reversion, trending regimes, or intraday orderbook dynamics."
+      ],
+      "status": "SIMULATED"
+    },
+    {
+      "methodology_id": "bench_sma_30m",
+      "methodology_name": "30-Minute SMA Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "synthetic_gold_rwa_24h",
+      "dataset_id": "synthetic_gold_rwa_24h",
+      "dataset_status": "SIMULATED",
+      "source": "simulated_ou_market_feed",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1774003600,
+        "end_ts": 1774082740,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 88
+      },
+      "metrics": {
+        "mae": 1.3622,
+        "rmse": 1.7427,
+        "directional_accuracy": 0.4773,
+        "mean_percentage_error": 0.6708,
+        "mean_absolute_percentage_error": 1.3893,
+        "prediction_interval_coverage": 0.375,
+        "sample_count": 88
+      },
+      "assumptions": [
+        "Short-term equilibrium is approximated by a 30-minute uniform rolling mean."
+      ],
+      "limitations": [
+        "Lags during rapid price breakouts; equally weights stale and recent ticks."
+      ],
+      "status": "SIMULATED"
+    },
+    {
+      "methodology_id": "bench_ewma_a15",
+      "methodology_name": "EWMA Filter (alpha=0.15) Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "synthetic_gold_rwa_24h",
+      "dataset_id": "synthetic_gold_rwa_24h",
+      "dataset_status": "SIMULATED",
+      "source": "simulated_ou_market_feed",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1774003600,
+        "end_ts": 1774082740,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 88
+      },
+      "metrics": {
+        "mae": 1.2781,
+        "rmse": 1.6421,
+        "directional_accuracy": 0.4886,
+        "mean_percentage_error": 0.6044,
+        "mean_absolute_percentage_error": 1.3037,
+        "prediction_interval_coverage": 0.4318,
+        "sample_count": 88
+      },
+      "assumptions": [
+        "More recent ticks contain higher information content decayed exponentially."
+      ],
+      "limitations": [
+        "Fixed smoothing factor may overfit calm regimes and underfit sudden regime jumps."
+      ],
+      "status": "SIMULATED"
+    }
+  ],
+  "ranked_by_mae": [
+    "bench_naive_persistence",
+    "bench_ewma_a15",
+    "bench_sma_30m"
+  ],
+  "status": "SIMULATED"
+}

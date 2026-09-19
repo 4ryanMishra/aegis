@@ -1,0 +1,120 @@
+{
+  "benchmark_id": "bench_paxg_usdt_jan2024_1h_replay",
+  "dataset_name": "paxg_usdt_binance_jan2024_1m",
+  "dataset_id": "paxg_usdt_binance_jan2024_1m",
+  "dataset_status": "HISTORICAL",
+  "source": "binance_vision_public_archive",
+  "sampling_interval_seconds": 60,
+  "horizon_seconds": 3600,
+  "timestamp": 1789853228,
+  "results": [
+    {
+      "methodology_id": "bench_naive_persistence",
+      "methodology_name": "Naive Persistence Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "paxg_usdt_binance_jan2024_1m",
+      "dataset_id": "paxg_usdt_binance_jan2024_1m",
+      "dataset_status": "HISTORICAL",
+      "source": "binance_vision_public_archive",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1704070800,
+        "end_ts": 1706741940,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 2968
+      },
+      "metrics": {
+        "mae": 2.1065,
+        "rmse": 2.9726,
+        "directional_accuracy": 0.0,
+        "mean_percentage_error": -0.0007,
+        "mean_absolute_percentage_error": 0.1045,
+        "prediction_interval_coverage": 0.6327,
+        "sample_count": 2968
+      },
+      "assumptions": [
+        "Asset price follows a martingale / random walk with zero expected drift."
+      ],
+      "limitations": [
+        "Cannot capture mean reversion, trending regimes, or intraday orderbook dynamics."
+      ],
+      "status": "HISTORICAL"
+    },
+    {
+      "methodology_id": "bench_sma_30m",
+      "methodology_name": "30-Minute SMA Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "paxg_usdt_binance_jan2024_1m",
+      "dataset_id": "paxg_usdt_binance_jan2024_1m",
+      "dataset_status": "HISTORICAL",
+      "source": "binance_vision_public_archive",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1704070800,
+        "end_ts": 1706741940,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 2968
+      },
+      "metrics": {
+        "mae": 2.1097,
+        "rmse": 2.9535,
+        "directional_accuracy": 0.6041,
+        "mean_percentage_error": -0.0024,
+        "mean_absolute_percentage_error": 0.1047,
+        "prediction_interval_coverage": 0.5529,
+        "sample_count": 2968
+      },
+      "assumptions": [
+        "Short-term equilibrium is approximated by a 30-minute uniform rolling mean."
+      ],
+      "limitations": [
+        "Lags during rapid price breakouts; equally weights stale and recent ticks."
+      ],
+      "status": "HISTORICAL"
+    },
+    {
+      "methodology_id": "bench_ewma_a15",
+      "methodology_name": "EWMA Filter (alpha=0.15) Baseline",
+      "method_version": "1.0.0",
+      "dataset_name": "paxg_usdt_binance_jan2024_1m",
+      "dataset_id": "paxg_usdt_binance_jan2024_1m",
+      "dataset_status": "HISTORICAL",
+      "source": "binance_vision_public_archive",
+      "horizon_seconds": 3600,
+      "sampling_interval_seconds": 60,
+      "evaluation_period": {
+        "start_ts": 1704070800,
+        "end_ts": 1706741940,
+        "horizon_seconds": 3600,
+        "rolling_step_seconds": 900,
+        "sample_count": 2968
+      },
+      "metrics": {
+        "mae": 2.0611,
+        "rmse": 2.894,
+        "directional_accuracy": 0.6223,
+        "mean_percentage_error": -0.0026,
+        "mean_absolute_percentage_error": 0.1022,
+        "prediction_interval_coverage": 0.5667,
+        "sample_count": 2968
+      },
+      "assumptions": [
+        "More recent ticks contain higher information content decayed exponentially."
+      ],
+      "limitations": [
+        "Fixed smoothing factor may overfit calm regimes and underfit sudden regime jumps."
+      ],
+      "status": "HISTORICAL"
+    }
+  ],
+  "ranked_by_mae": [
+    "bench_ewma_a15",
+    "bench_naive_persistence",
+    "bench_sma_30m"
+  ],
+  "status": "HISTORICAL"
+}

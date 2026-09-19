@@ -41,15 +41,18 @@ class NaivePersistenceStrategy(ValidatorStrategy):
         latest = context.latest_observation
         curr_price = latest.price if latest else 100.0
 
-        # Estimate empirical variance from available window
+        # Estimate empirical variance from trailing window (up to 60 observations)
         if len(context.history) >= 5:
-            prices = [obs.price for obs in context.history]
+            recent_slice = context.history[-60:]
+            prices = [obs.price for obs in recent_slice]
             std = float(np.std(prices))
         else:
             std = curr_price * 0.015
 
         lower = round(curr_price - 1.96 * std, 4)
         upper = round(curr_price + 1.96 * std, 4)
+
+        status_val = latest.status if latest else "HISTORICAL"
 
         return ValidatorPrediction(
             validator_id=context.validator_id,
@@ -62,21 +65,24 @@ class NaivePersistenceStrategy(ValidatorStrategy):
             target_timestamp=context.target_ts,
             source_provenance=self.source_provenance,
             input_window=window,
-            status="SIMULATED",
+            status=status_val,
             metadata={"baseline_type": "MARTINGALE_PERSISTENCE"}
         )
 
 
 class SimpleMovingAverageStrategy(ValidatorStrategy):
-    """Baseline 2: 30-minute Rolling Window Simple Moving Average."""
+    """Baseline 2: Rolling Window Simple Moving Average."""
+
+    def __init__(self, window_seconds: int = 1800):
+        self.window_seconds = window_seconds
 
     @property
     def method_id(self) -> str:
-        return "bench_sma_30m"
+        return f"bench_sma_{self.window_seconds // 60}m"
 
     @property
     def method_name(self) -> str:
-        return "30-Minute SMA Baseline"
+        return f"{self.window_seconds // 60}-Minute SMA Baseline"
 
     @property
     def version(self) -> str:
@@ -84,11 +90,11 @@ class SimpleMovingAverageStrategy(ValidatorStrategy):
 
     @property
     def source_provenance(self) -> List[str]:
-        return ["spot_feed_30m_window"]
+        return [f"spot_feed_{self.window_seconds // 60}m_window"]
 
     @property
     def assumptions(self) -> List[str]:
-        return ["Short-term equilibrium is approximated by a 30-minute uniform rolling mean."]
+        return [f"Short-term equilibrium is approximated by a {self.window_seconds // 60}-minute uniform rolling mean."]
 
     @property
     def limitations(self) -> List[str]:
@@ -96,8 +102,13 @@ class SimpleMovingAverageStrategy(ValidatorStrategy):
 
     def predict(self, context: InputContext) -> ValidatorPrediction:
         window = context.get_input_window()
-        cutoff = context.current_ts - 1800  # 30m window
-        recent = [obs.price for obs in context.history if obs.timestamp >= cutoff]
+        cutoff = context.current_ts - self.window_seconds
+        recent = []
+        for obs in reversed(context.history):
+            if obs.timestamp >= cutoff:
+                recent.append(obs.price)
+            else:
+                break
 
         if recent:
             estimate = float(np.mean(recent))
@@ -110,6 +121,8 @@ class SimpleMovingAverageStrategy(ValidatorStrategy):
         lower = round(estimate - 1.96 * max(std, 0.05), 4)
         upper = round(estimate + 1.96 * max(std, 0.05), 4)
 
+        status_val = context.latest_observation.status if context.latest_observation else "HISTORICAL"
+
         return ValidatorPrediction(
             validator_id=context.validator_id,
             method_id=self.method_id,
@@ -121,8 +134,8 @@ class SimpleMovingAverageStrategy(ValidatorStrategy):
             target_timestamp=context.target_ts,
             source_provenance=self.source_provenance,
             input_window=window,
-            status="SIMULATED",
-            metadata={"window_seconds": 1800, "samples": len(recent)}
+            status=status_val,
+            metadata={"window_seconds": self.window_seconds, "samples": len(recent)}
         )
 
 
@@ -162,8 +175,9 @@ class ExponentialMovingAverageStrategy(ValidatorStrategy):
             estimate = 100.0
             std = 1.0
         else:
-            prices = [obs.price for obs in context.history]
-            # Compute EWMA
+            # Trailing 180 points capture > 99.9999999% of EWMA weight ((1-0.15)^180 < 1e-12)
+            recent_obs = context.history[-180:]
+            prices = [obs.price for obs in recent_obs]
             ewma = prices[0]
             for p in prices[1:]:
                 ewma = self.alpha * p + (1.0 - self.alpha) * ewma
@@ -172,6 +186,8 @@ class ExponentialMovingAverageStrategy(ValidatorStrategy):
 
         lower = round(estimate - 1.96 * max(std, 0.05), 4)
         upper = round(estimate + 1.96 * max(std, 0.05), 4)
+
+        status_val = context.latest_observation.status if context.latest_observation else "HISTORICAL"
 
         return ValidatorPrediction(
             validator_id=context.validator_id,
@@ -184,6 +200,6 @@ class ExponentialMovingAverageStrategy(ValidatorStrategy):
             target_timestamp=context.target_ts,
             source_provenance=self.source_provenance,
             input_window=window,
-            status="SIMULATED",
+            status=status_val,
             metadata={"alpha": self.alpha}
         )

@@ -77,7 +77,7 @@ corrupt_ts,96.50,30
         dataset_id="test_filter_invalid",
         asset="XAU/USD",
         source="test_exchange_feed",
-        status="HISTORICAL",
+        status="SIMULATED",
         sampling_interval_seconds=60,
     )
 
@@ -107,7 +107,7 @@ def test_chronological_ordering_and_monotonicity():
         dataset_id="test_order",
         asset="XAU/USD",
         source="test_exchange_feed",
-        status="HISTORICAL",
+        status="SIMULATED",
         sampling_interval_seconds=60,
     )
 
@@ -225,7 +225,7 @@ def test_point_in_time_anti_leakage_and_target_alignment():
         dataset_id="test_anti_leakage",
         asset="XAU/USD",
         source="synthetic_test_feed",
-        status="HISTORICAL",
+        status="SIMULATED",
         sampling_interval_seconds=60,
     )
 
@@ -252,7 +252,7 @@ def test_point_in_time_anti_leakage_and_target_alignment():
     strat = NaivePersistenceStrategy()
     result = engine.run(strategy=strat, dataset=dataset)
 
-    assert result.status == "HISTORICAL"
+    assert result.status == "SIMULATED"
     assert result.dataset_id == "test_anti_leakage"
     assert result.source == "synthetic_test_feed"
     assert result.horizon_seconds == 3600
@@ -302,7 +302,7 @@ def test_dataset_manifest_and_sha256_checksum():
         dataset_id="manifest_test_ds",
         asset="PAXG/USDT",
         source="binance_vision_public_archive",
-        status="HISTORICAL",
+        status="SIMULATED",
         source_url="https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/1m/PAXGUSDT-1m-2024-01.zip",
         sampling_interval_seconds=60,
     )
@@ -313,14 +313,14 @@ def test_dataset_manifest_and_sha256_checksum():
     assert manifest.asset == "PAXG/USDT"
     assert manifest.source == "binance_vision_public_archive"
     assert manifest.timezone == "UTC"
-    assert manifest.status == "HISTORICAL"
+    assert manifest.status == "SIMULATED"
     assert manifest.checksum_sha256 == expected_sha256
     assert manifest.start_timestamp == 1774000000
     assert manifest.end_timestamp == 1774000060
 
 
 def test_binance_vision_preset_reader():
-    """Verify preset reader for Binance Vision headerless 1-minute klines."""
+    """Verify preset reader for Binance Vision headerless 1-minute klines format."""
     # Binance format: open_time, open, high, low, close, volume, close_time, quote_asset_volume, trades, ...
     binance_csv = """1704067200000,2065.50,2066.00,2064.50,2065.80,12.5,1704067259999,25822.5,45,6.2,12807.9,0
 1704067260000,2065.80,2067.10,2065.20,2066.90,18.2,1704067319999,37617.5,60,9.1,18808.7,0
@@ -329,10 +329,11 @@ def test_binance_vision_preset_reader():
         csv_text_or_path=binance_csv,
         asset="PAXG/USDT",
         dataset_id="binance_paxgusdt_jan2024_1m",
+        status="SIMULATED"
     )
 
     assert len(dataset) == 2
-    assert dataset.status == "HISTORICAL"
+    assert dataset.status == "SIMULATED"
     assert dataset.asset == "PAXG/USDT"
     assert dataset.source == "binance_vision_public_archive"
     assert dataset.observations[0].timestamp == 1704067200  # Unix ms -> Unix s

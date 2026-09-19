@@ -91,12 +91,13 @@ class RollingBacktestEngine:
                 )
 
             # 2. Construct InputContext
-            context = InputContext(
+            context = InputContext.model_construct(
                 validator_id=validator_id,
                 current_ts=current_t,
                 target_horizon_seconds=self.horizon_seconds,
                 history=history,
-                seed=42
+                seed=42,
+                metadata={}
             )
 
             # 3. Strategy Prediction

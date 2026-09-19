@@ -11,4 +11,6 @@ cache/
 contracts/lib/
 coverage/
 *.pyc
-.DS_Store
+data/
+*.zip
+*.tar.gz

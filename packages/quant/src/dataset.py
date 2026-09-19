@@ -39,7 +39,7 @@ class HistoricalReplayDataset:
         self.sampling_interval_seconds = (
             manifest.sampling_interval_seconds if manifest else sampling_interval_seconds
         )
-        self._timestamps = [obs.timestamp for obs in self.observations]
+        self._timestamps = np.array([obs.timestamp for obs in self.observations], dtype=np.int64)
 
     @property
     def dataset_id(self) -> str:
@@ -63,11 +63,11 @@ class HistoricalReplayDataset:
 
     @property
     def start_ts(self) -> int:
-        return self._timestamps[0] if self._timestamps else 0
+        return int(self._timestamps[0]) if len(self._timestamps) > 0 else 0
 
     @property
     def end_ts(self) -> int:
-        return self._timestamps[-1] if self._timestamps else 0
+        return int(self._timestamps[-1]) if len(self._timestamps) > 0 else 0
 
     def __len__(self) -> int:
         return len(self.observations)
@@ -89,7 +89,7 @@ class HistoricalReplayDataset:
         Retrieves the observation closest to the target timestamp within tolerance_sec.
         Useful for evaluating realized value at t + 3600s.
         """
-        if not self._timestamps:
+        if len(self._timestamps) == 0:
             return None
 
         idx = np.searchsorted(self._timestamps, timestamp)

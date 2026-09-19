@@ -363,7 +363,8 @@ class CSVIngestionReader:
         csv_text_or_path: Union[str, Path],
         asset: str = "PAXG/USDT",
         dataset_id: Optional[str] = None,
-        source_url: Optional[str] = "https://data.binance.vision"
+        source_url: Optional[str] = "https://data.binance.vision",
+        status: str = "HISTORICAL"
     ) -> HistoricalReplayDataset:
         """
         Preset reader for Binance Public Data Vision monthly/daily klines CSV.
@@ -385,7 +386,7 @@ class CSVIngestionReader:
                 asset=asset,
                 source="binance_vision_public_archive",
                 dataset_id=dataset_id,
-                status="HISTORICAL",
+                status=status,
                 sampling_interval_seconds=60,
                 mapping=mapping,
                 source_url=source_url,
@@ -397,7 +398,7 @@ class CSVIngestionReader:
                 dataset_id=dataset_id or f"binance_{asset.lower().replace('/', '_')}_1m",
                 asset=asset,
                 source="binance_vision_public_archive",
-                status="HISTORICAL",
+                status=status,
                 sampling_interval_seconds=60,
                 mapping=mapping,
                 source_url=source_url,

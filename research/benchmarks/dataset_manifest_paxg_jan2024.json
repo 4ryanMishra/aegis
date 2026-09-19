@@ -1,0 +1,18 @@
+{
+  "dataset_id": "paxg_usdt_binance_jan2024_1m",
+  "asset": "PAXG/USDT",
+  "source": "binance_vision_public_archive",
+  "acquisition_method": "MANUAL_DOWNLOAD",
+  "source_url": "https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/1m/PAXGUSDT-1m-2024-01.zip",
+  "timezone": "UTC",
+  "sampling_interval_seconds": 60,
+  "start_timestamp": 1704067200,
+  "end_timestamp": 1706745540,
+  "status": "HISTORICAL",
+  "checksum_sha256": "23da50637fe1e658b6565abfead92e12bc865aca21a0beb80c80684136b0be01",
+  "metadata": {
+    "coverage_pct": 100.0,
+    "dropped_duplicates": 0,
+    "gaps_count": 0
+  }
+}

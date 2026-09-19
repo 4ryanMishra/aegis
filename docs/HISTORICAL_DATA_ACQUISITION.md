@@ -6,22 +6,23 @@ Every historical dataset ingested into the AEGIS benchmark and replay engine mus
 
 1. **Explicit Status Tagging**: Every dataset and observation must carry an immutable status:
    - `LIVE`: Streamed in real time from live socket/polling infrastructure.
-   - `HISTORICAL`: Ingested from authenticated historical records or public archives without synthetic modification.
+   - `HISTORICAL`: Ingested from unauthenticated public archives or historical market records via public download without synthetic modification.
    - `REPLAY`: Historical data currently being streamed or iterated through the evaluation engine.
    - `SIMULATED`: Generated via mathematical or synthetic models (e.g., Ornstein-Uhlenbeck test fixtures).
 2. **Off-Chain Source Classification**: All centralized exchange records (Binance, Coinbase, Kraken, etc.) and aggregators (CoinGecko, Kaiko) are **OFF-CHAIN**. They must never be described or labeled as "on-chain" data.
 3. **No Synthetic Substitution**: Real datasets must never be silently substituted with synthetic data.
-4. **Cryptographic Provenance**: Every ingested file must have its SHA-256 checksum computed and preserved in the `DatasetManifest`.
+4. **Cryptographic Provenance**: Every ingested file must undergo **SHA-256 checksum verification** against published digests, with the digest preserved in the `DatasetManifest`.
 5. **Point-in-Time Anti-Leakage**: Replay interfaces must guarantee that validators evaluating at time $t$ can never inspect observations with $t_{\text{obs}} > t$.
 
 ---
 
 ## 2. Target Asset & Data Source
 
-For Multipli RWA collateral (such as tokenized physical gold), the primary market proxy is Paxos Gold (**PAXG/USDT** or **PAXG/USD**).
+PAXG/USDT is an empirical proxy for gold-linked RWA/oracle research. It is NOT claimed to be Multipli's production collateral price or oracle feed.
 
 - **Primary Historical Provider**: **Binance Public Data Vision Archive**
-- **Access Level**: Public open archive. **No API key, credentials, or paid subscription required.**
+- **Access Level**: **Unauthenticated public archive** (public download). **No API key, credentials, or paid subscription required.**
+- **Integrity**: **SHA-256 checksum verification** against published digests.
 - **Licensing/Terms**: Binance Open Data Archive for academic and analytical research.
 - **Granularity**: 1-minute ($1m$) OHLCV klines.
 
@@ -40,19 +41,19 @@ The official SHA-256 checksum provided by the archive is:
 https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/1m/PAXGUSDT-1m-2024-01.zip.CHECKSUM
 ```
 
-### Step 2: Download the Archive & Checksum
+### Step 2: Download the Archive & Checksum (Public Download)
 Using curl or browser:
 ```bash
 # Create local data directory (git-ignored)
 mkdir -p data/historical
 
-# Download zip file and checksum
+# Download zip file and checksum via public download
 curl -O https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/1m/PAXGUSDT-1m-2024-01.zip
 curl -O https://data.binance.vision/data/spot/monthly/klines/PAXGUSDT/1m/PAXGUSDT-1m-2024-01.zip.CHECKSUM
 ```
 
-### Step 3: Verify Cryptographic Integrity
-Verify the download matches the provider's published SHA-256 digest:
+### Step 3: SHA-256 Checksum Verification
+Verify the public download matches the provider's published SHA-256 digest:
 
 **On Linux/macOS:**
 ```bash

@@ -1,0 +1,15 @@
+{
+  "observation_count": 44640,
+  "valid_count": 44640,
+  "dropped_duplicates": 0,
+  "invalid_prices_count": 0,
+  "missing_intervals_count": 0,
+  "expected_intervals_count": 44640,
+  "coverage_percentage": 100.0,
+  "min_timestamp": 1704067200,
+  "max_timestamp": 1706745540,
+  "source": "binance_vision_public_archive",
+  "data_status": "HISTORICAL",
+  "gaps": [],
+  "is_strictly_monotonic": true
+}
