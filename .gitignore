@@ -8,7 +8,7 @@ __pycache__/
 broadcast/
 out/
 cache/
-lib/
+contracts/lib/
 coverage/
 *.pyc
 .DS_Store
