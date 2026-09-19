@@ -1,0 +1,1 @@
+"""AEGIS Quant package."""

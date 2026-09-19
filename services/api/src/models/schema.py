@@ -59,7 +59,33 @@ class ValidatorObservation(BaseModel):
     source_ids: List[str] = Field(default_factory=list, description="List of underlying data feeds used")
     method_version: str = Field(default="0.1.0-alpha")
     status: DataStatus = Field(default=DataStatus.SIMULATED)
+    input_window: Optional[Dict[str, Any]] = Field(default=None, description="Metadata describing input observation window")
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    # Standard aliases matching Phase 2A Requirement 1
+    @property
+    def method_id(self) -> str:
+        return self.strategy_id
+
+    @property
+    def point_estimate(self) -> float:
+        return self.estimated_price
+
+    @property
+    def lower_bound(self) -> float:
+        return self.uncertainty_lower
+
+    @property
+    def upper_bound(self) -> float:
+        return self.uncertainty_upper
+
+    @property
+    def timestamp(self) -> int:
+        return self.observed_at
+
+    @property
+    def source_provenance(self) -> List[str]:
+        return self.source_ids
 
 
 class DECAggregate(BaseModel):
