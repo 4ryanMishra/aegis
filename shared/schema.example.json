@@ -1,0 +1,12 @@
+{
+  "scenario_id": "gold_crash_demo_01",
+  "asset": "XAUUSD",
+  "window": {"start_ts": 0, "end_ts": 3600},
+  "p_osm": {"value": 100.0, "timestamp": 0, "source": "multipli_osm_mock"},
+  "validators": [],
+  "p_dec": {"value": null, "aggregation": null, "validator_count": 0, "status": "SIMULATED"},
+  "p_market": {"value": null, "timestamp": null, "source": null, "status": "PENDING"},
+  "evidence": {},
+  "decision": {},
+  "collateral": {"ltv": 0.60}
+}

@@ -1,0 +1,14 @@
+node_modules/
+.next/
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+.env.local
+broadcast/
+out/
+cache/
+lib/
+coverage/
+*.pyc
+.DS_Store

@@ -1,0 +1,32 @@
+[
+  {
+    "scenario_id": "scen_gold_osm_spike_01",
+    "title": "Gold RWA — Stale / Manipulated OSM Spike",
+    "description": "Baseline OSM pushes an anomalous $100.00 valuation at T0. During the 1-hour verification window, 4 independent validator strategies converge around $93.00. At T1, external market observation confirms true price at $95.00, exposing a +5.26% OSM overstatement and protecting protocol collateral.",
+    "asset": "XAU/USD (Tokenized Gold)",
+    "category": "OSM_SPIKE",
+    "p_osm_initial": 100.0,
+    "expected_market": 95.0,
+    "ltv_default": 0.60
+  },
+  {
+    "scenario_id": "scen_gold_healthy_consensus_02",
+    "title": "Gold RWA — Healthy Multi-Source Consensus",
+    "description": "Normal market conditions. Baseline OSM queues $95.20. Independent validators forecast between $94.90 and $95.30 (median $95.10). Market settles at $95.15. Oracle evidence engine validates healthy consistency (anomaly score 0.05).",
+    "asset": "XAU/USD (Tokenized Gold)",
+    "category": "HEALTHY",
+    "p_osm_initial": 95.2,
+    "expected_market": 95.15,
+    "ltv_default": 0.60
+  },
+  {
+    "scenario_id": "scen_gold_high_volatility_03",
+    "title": "Gold RWA — Intraday Flash Crash (Market Real-Move)",
+    "description": "Macro liquidity event. OSM enters window at $98.00. Rapid validator updates capture falling prices at $88.50. Market settles at $88.00. AEGIS detects genuine regime shift vs delayed oracle staleness, preventing bad debt from accepting outdated $98.00.",
+    "asset": "XAU/USD (Tokenized Gold)",
+    "category": "HIGH_VOLATILITY",
+    "p_osm_initial": 98.0,
+    "expected_market": 88.0,
+    "ltv_default": 0.60
+  }
+]
