@@ -5,7 +5,12 @@ Ensures zero future-leakage data access and reproducible evaluation.
 
 from typing import List, Optional, Dict, Any
 import numpy as np
-from .models import TimestampedObservation
+from .models import (
+    HistoricalMarketObservation,
+    TimestampedObservation,
+    DatasetManifest,
+    DataQualityReport,
+)
 
 
 class HistoricalReplayDataset:
@@ -17,16 +22,44 @@ class HistoricalReplayDataset:
     def __init__(
         self,
         name: str,
-        observations: List[TimestampedObservation],
+        observations: List[HistoricalMarketObservation],
         description: str = "",
-        status: str = "SIMULATED"
+        status: str = "SIMULATED",
+        manifest: Optional[DatasetManifest] = None,
+        quality_report: Optional[DataQualityReport] = None,
+        sampling_interval_seconds: int = 60,
     ):
         self.name = name
         # Ensure observations are sorted chronologically
         self.observations = sorted(observations, key=lambda x: x.timestamp)
         self.description = description
         self.status = status
+        self.manifest = manifest
+        self.quality_report = quality_report
+        self.sampling_interval_seconds = (
+            manifest.sampling_interval_seconds if manifest else sampling_interval_seconds
+        )
         self._timestamps = [obs.timestamp for obs in self.observations]
+
+    @property
+    def dataset_id(self) -> str:
+        return self.manifest.dataset_id if self.manifest else self.name
+
+    @property
+    def source(self) -> str:
+        if self.manifest:
+            return self.manifest.source
+        if self.observations:
+            return self.observations[0].source
+        return "unknown_source"
+
+    @property
+    def asset(self) -> str:
+        if self.manifest:
+            return self.manifest.asset
+        if self.observations:
+            return self.observations[0].asset
+        return "XAU/USD"
 
     @property
     def start_ts(self) -> int:
@@ -39,7 +72,7 @@ class HistoricalReplayDataset:
     def __len__(self) -> int:
         return len(self.observations)
 
-    def get_observations_up_to(self, timestamp: int) -> List[TimestampedObservation]:
+    def get_observations_up_to(self, timestamp: int) -> List[HistoricalMarketObservation]:
         """
         Returns all observations strictly up to and including timestamp.
         Guarantees that no future data (t > timestamp) is returned.
@@ -51,7 +84,7 @@ class HistoricalReplayDataset:
         self,
         timestamp: int,
         tolerance_sec: int = 180
-    ) -> Optional[TimestampedObservation]:
+    ) -> Optional[HistoricalMarketObservation]:
         """
         Retrieves the observation closest to the target timestamp within tolerance_sec.
         Useful for evaluating realized value at t + 3600s.
@@ -105,20 +138,60 @@ def generate_synthetic_rwa_series(
         prices[t] = max(10.0, prices[t - 1] + drift + shock)
 
     observations = [
-        TimestampedObservation(
+        HistoricalMarketObservation(
             timestamp=timestamps[i],
             price=round(float(prices[i]), 4),
             volume=round(float(rng.uniform(10.0, 500.0)), 2),
-            source_id="synthetic_rwa_depth_feed",
+            source="simulated_ou_market_feed",
+            asset="XAU/USD",
             status="SIMULATED",
             metadata={"step_sec": step_seconds, "seed": seed}
         )
         for i in range(n_steps)
     ]
 
+    manifest = DatasetManifest(
+        dataset_id=dataset_name,
+        asset="XAU/USD",
+        source="simulated_ou_market_feed",
+        acquisition_method="DETERMINISTIC_SYNTHETIC",
+        source_url=None,
+        timezone="UTC",
+        sampling_interval_seconds=step_seconds,
+        start_timestamp=timestamps[0] if timestamps else 0,
+        end_timestamp=timestamps[-1] if timestamps else 0,
+        status="SIMULATED",
+        checksum_sha256=None,
+        metadata={
+            "seed": seed,
+            "volatility": volatility,
+            "mean_reversion_speed": mean_reversion_speed,
+            "synthetic_model": "Ornstein-Uhlenbeck"
+        }
+    )
+
+    quality_report = DataQualityReport(
+        observation_count=n_steps,
+        valid_count=n_steps,
+        dropped_duplicates=0,
+        invalid_prices_count=0,
+        missing_intervals_count=0,
+        expected_intervals_count=n_steps,
+        coverage_percentage=100.0,
+        min_timestamp=timestamps[0] if timestamps else None,
+        max_timestamp=timestamps[-1] if timestamps else None,
+        source="simulated_ou_market_feed",
+        data_status="SIMULATED",
+        gaps=[],
+        is_strictly_monotonic=True
+    )
+
     return HistoricalReplayDataset(
         name=dataset_name,
         observations=observations,
         description=f"Deterministic synthetic 24-hour RWA tick series generated with seed={seed}",
-        status="SIMULATED"
+        status="SIMULATED",
+        manifest=manifest,
+        quality_report=quality_report,
+        sampling_interval_seconds=step_seconds
     )

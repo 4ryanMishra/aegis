@@ -6,7 +6,7 @@ Enables pluggable insertion, backtesting, and auditing of research methodologies
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from .models import TimestampedObservation, ValidatorPrediction, InputWindow
+from .models import HistoricalMarketObservation, TimestampedObservation, ValidatorPrediction, InputWindow
 
 
 class InputContext(BaseModel):
@@ -18,7 +18,7 @@ class InputContext(BaseModel):
     validator_id: str
     current_ts: int
     target_horizon_seconds: int = 3600  # Default 1 hour
-    history: List[TimestampedObservation]
+    history: List[HistoricalMarketObservation]
     seed: int = 42
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -27,7 +27,7 @@ class InputContext(BaseModel):
         return self.current_ts + self.target_horizon_seconds
 
     @property
-    def latest_observation(self) -> Optional[TimestampedObservation]:
+    def latest_observation(self) -> Optional[HistoricalMarketObservation]:
         return self.history[-1] if self.history else None
 
     def get_input_window(self) -> InputWindow:

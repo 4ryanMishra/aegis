@@ -1,20 +1,94 @@
 """
-Domain data structures for validator predictions, rolling evaluation, and benchmark results.
-Conforms strictly to Phase 2A requirements.
+Domain data structures for validator predictions, rolling evaluation, historical datasets,
+data manifests, and benchmark results.
+Conforms strictly to Phase 2A and Phase 2B requirements.
 """
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel, Field, model_validator
 
 
-class TimestampedObservation(BaseModel):
-    """An individual historical or simulated market observation."""
-    timestamp: int = Field(..., description="Observation Unix timestamp in seconds")
-    price: float = Field(..., description="Observed market price")
+DataStatusType = Literal["LIVE", "HISTORICAL", "REPLAY", "SIMULATED"]
+
+
+class HistoricalMarketObservation(BaseModel):
+    """
+    Canonical historical market observation model.
+    Retains timestamp, price, asset, provider source, and provenance metadata.
+    """
+    timestamp: int = Field(..., description="Observation Unix timestamp in integer seconds (UTC)")
+    price: float = Field(..., gt=0.0, description="Observed market price (strictly > 0.0)")
+    source: str = Field(default="simulated_market_feed", description="Originating provider/market source identifier")
+    asset: str = Field(default="XAU/USD", description="Asset or trading pair symbol (e.g. PAXG/USDT, XAU/USD)")
+    status: str = Field(default="HISTORICAL", description="Data integrity status: LIVE, HISTORICAL, REPLAY, SIMULATED")
     volume: Optional[float] = Field(default=None, description="Observed volume if available")
-    source_id: str = Field(default="simulated_market_feed", description="Source feed identifier")
-    status: str = Field(default="SIMULATED", description="Data integrity status: SIMULATED / OBSERVED")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    bid: Optional[float] = Field(default=None, description="Best bid quote if available")
+    ask: Optional[float] = Field(default=None, description="Best ask quote if available")
+    open: Optional[float] = Field(default=None, description="Interval open price")
+    high: Optional[float] = Field(default=None, description="Interval high price")
+    low: Optional[float] = Field(default=None, description="Interval low price")
+    close: Optional[float] = Field(default=None, description="Interval close price")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary provenance/tick metadata")
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_source_id_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "source_id" in data and "source" not in data:
+                data["source"] = data["source_id"]
+        return data
+
+    @property
+    def source_id(self) -> str:
+        return self.source
+
+
+# Backward-compatible alias for existing quant code
+class TimestampedObservation(HistoricalMarketObservation):
+    """Backward-compatible alias for HistoricalMarketObservation."""
+    pass
+
+
+class DatasetManifest(BaseModel):
+    """
+    Metadata manifest detailing the origin, time boundaries, sampling frequency,
+    and acquisition integrity of a market dataset.
+    """
+    dataset_id: str = Field(..., description="Unique immutable dataset identifier")
+    asset: str = Field(..., description="Target asset identifier (e.g. PAXG/USDT, XAU/USD)")
+    source: str = Field(..., description="Primary data provider/archive (e.g. binance_vision_public_archive)")
+    acquisition_method: str = Field(
+        ...,
+        description="Method of acquisition: MANUAL_DOWNLOAD, REST_API_BATCH, DETERMINISTIC_SYNTHETIC, HISTORICAL_REPLAY"
+    )
+    source_url: Optional[str] = Field(default=None, description="Public documentation or download URL")
+    timezone: str = Field(default="UTC", description="Normalized timezone of records (always UTC in AEGIS)")
+    sampling_interval_seconds: int = Field(default=60, description="Target sampling interval in seconds (e.g. 60 for 1m)")
+    start_timestamp: int = Field(..., description="First observation timestamp in seconds (UTC)")
+    end_timestamp: int = Field(..., description="Last observation timestamp in seconds (UTC)")
+    status: str = Field(default="HISTORICAL", description="Data status: LIVE, HISTORICAL, REPLAY, SIMULATED")
+    checksum_sha256: Optional[str] = Field(default=None, description="SHA-256 hash of the raw dataset file")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="License, citation, notes, collection date")
+
+
+class DataQualityReport(BaseModel):
+    """
+    Data quality audit report assessing continuity, duplicate counts,
+    and missing intervals in a historical dataset.
+    """
+    observation_count: int = Field(..., description="Total raw rows or observations processed")
+    valid_count: int = Field(..., description="Total valid records retained after cleaning")
+    dropped_duplicates: int = Field(default=0, description="Duplicate timestamps removed")
+    invalid_prices_count: int = Field(default=0, description="Non-positive, null, or invalid price rows dropped")
+    missing_intervals_count: int = Field(default=0, description="Number of interval gaps detected (> 1.5 * sampling_interval)")
+    expected_intervals_count: int = Field(..., description="Theoretical expected tick count over [min_ts, max_ts]")
+    coverage_percentage: float = Field(..., description="Percentage of expected interval ticks present (valid / expected * 100)")
+    min_timestamp: Optional[int] = Field(default=None, description="Earliest observation timestamp (UTC)")
+    max_timestamp: Optional[int] = Field(default=None, description="Latest observation timestamp (UTC)")
+    source: str = Field(..., description="Source feed identifier")
+    data_status: str = Field(default="HISTORICAL", description="LIVE, HISTORICAL, REPLAY, SIMULATED")
+    gaps: List[Dict[str, int]] = Field(default_factory=list, description="List of detected gaps with start_ts, end_ts, duration_seconds")
+    is_strictly_monotonic: bool = Field(default=True, description="Whether timestamps are strictly increasing")
 
 
 class InputWindow(BaseModel):
@@ -111,6 +185,11 @@ class MethodologyResult(BaseModel):
     methodology_name: str
     method_version: str
     dataset_name: str
+    dataset_id: Optional[str] = None
+    dataset_status: str = "HISTORICAL"
+    source: str = "unknown_source"
+    horizon_seconds: int = 3600
+    sampling_interval_seconds: int = 60
     evaluation_period: Dict[str, Any] = Field(
         ...,
         description="Dictionary with start_ts, end_ts, horizon_seconds, rolling_step_seconds, sample_count"
@@ -118,15 +197,19 @@ class MethodologyResult(BaseModel):
     metrics: EvaluationMetrics
     assumptions: List[str] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
-    status: str = Field(default="SIMULATED", description="Must remain SIMULATED for prototype evaluation")
+    status: str = Field(default="HISTORICAL", description="Must remain SIMULATED/HISTORICAL as appropriate")
 
 
 class BenchmarkComparison(BaseModel):
     """Multi-methodology side-by-side benchmark comparison."""
     benchmark_id: str
     dataset_name: str
+    dataset_id: Optional[str] = None
+    dataset_status: str = "HISTORICAL"
+    source: str = "unknown_source"
+    sampling_interval_seconds: int = 60
     horizon_seconds: int = 3600
     timestamp: int
     results: List[MethodologyResult]
     ranked_by_mae: List[str]
-    status: str = "SIMULATED"
+    status: str = "HISTORICAL"

@@ -50,6 +50,10 @@ class ValidatorBenchmarkRunner:
         return BenchmarkComparison(
             benchmark_id=b_id,
             dataset_name=dataset.name,
+            dataset_id=dataset.dataset_id,
+            dataset_status=dataset.status,
+            source=dataset.source,
+            sampling_interval_seconds=dataset.sampling_interval_seconds,
             horizon_seconds=self.horizon_seconds,
             timestamp=int(time.time()),
             results=results,
@@ -61,8 +65,11 @@ class ValidatorBenchmarkRunner:
     def format_markdown_table(comparison: BenchmarkComparison) -> str:
         """Formats side-by-side comparison into a clean Markdown table."""
         header = (
-            f"### Benchmark Comparison: {comparison.benchmark_id} [Status: {comparison.status}]\n"
-            f"**Dataset**: `{comparison.dataset_name}` | **Horizon**: `{comparison.horizon_seconds // 60}m`\n\n"
+            f"### Benchmark Comparison: {comparison.benchmark_id} [Status: {comparison.dataset_status}]\n"
+            f"**Dataset**: `{comparison.dataset_name}` (`{comparison.dataset_id}`) | "
+            f"**Source**: `{comparison.source}` | "
+            f"**Sampling**: `{comparison.sampling_interval_seconds}s` | "
+            f"**Horizon**: `{comparison.horizon_seconds // 60}m`\n\n"
             "| Methodology | Version | MAE ($) | RMSE ($) | Dir. Acc (%) | MAPE (%) | Interval Coverage | Rank (MAE) |\n"
             "|---|---|---|---|---|---|---|---|\n"
         )
