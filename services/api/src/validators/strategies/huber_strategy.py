@@ -50,11 +50,20 @@ class HuberStrategy(ValidatorStrategy):
         ]
 
         if context.scenario_type == "POISONED_VALIDATOR":
-            # One feed injects severe outlier (+15%)
-            quotes[0] = round(p_base * 1.15, 2)
+            # One feed injects severe rogue outlier ($500.0)
+            quotes[0] = 500.0
         elif context.scenario_type == "FLASH_SPIKE":
             # Temporary single-exchange flash spike (+12%)
             quotes[1] = round(p_base * 1.12, 2)
+        elif context.scenario_type == "FLASH_CRASH":
+            # Genuine market real move around p_base ($93.50)
+            quotes = [
+                round(p_base - 0.15, 2),
+                round(p_base + 0.10, 2),
+                round(p_base - 0.05, 2),
+                round(p_base + 0.20, 2),
+                round(p_base, 2),
+            ]
         elif context.scenario_type == "SLOW_DRIFT":
             # All quotes drift slightly upwards (+0.9%)
             quotes = [round(q * 1.009, 2) for q in quotes]

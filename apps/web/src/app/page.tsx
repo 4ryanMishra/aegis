@@ -71,8 +71,8 @@ export default function RiskTerminalPage() {
 
   const handleStep = () => {
     setStepSeconds((prev) => {
-      const next = Math.min(3600, prev + 900);
-      return next === prev && prev < 3600 ? prev + 900 : (prev >= 3600 ? 900 : next);
+      if (prev >= 3600) return 0;
+      return Math.min(3600, prev + 900);
     });
     setRefreshTrigger((prev) => prev + 1);
   };
@@ -123,7 +123,12 @@ export default function RiskTerminalPage() {
         selectedScenarioId={selectedScenarioId}
         onSelectScenario={(id) => {
           setSelectedScenarioId(id);
-          setStepSeconds(3600);
+          const matched = scenarios.find((s) => s.scenario_id === id);
+          if (matched && matched.ltv_default) {
+            setLtv(matched.ltv_default);
+          }
+          setStepSeconds(0);
+          setRefreshTrigger((prev) => prev + 1);
         }}
         ltv={ltv}
         onChangeLtv={setLtv}

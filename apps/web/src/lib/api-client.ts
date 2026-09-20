@@ -1,104 +1,111 @@
 import { ScenarioRecord, ScenarioListItem } from './types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use relative path in browser for Next.js proxy rewrite, or direct backend port
+const API_BASE_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000');
 
 export async function fetchScenarios(): Promise<ScenarioListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/scenarios`, { cache: 'no-store' });
-    if (res.ok) {
-      return await res.json();
+  const urls = [
+    `${API_BASE_URL}/api/scenarios`,
+    'http://127.0.0.1:8000/api/scenarios',
+    'http://localhost:8000/api/scenarios'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Try next endpoint fallback
     }
-  } catch {
-    // Graceful fallback to deterministic static list
   }
 
   return [
     {
-      scenario_id: 'scen_normal_consensus',
-      title: 'Normal Baseline Consensus (Stationary Market)',
-      description: 'Stationary market conditions. Baseline OSM queues $95.20. All five methodology lanes agree within narrow dispersion. Protocol issues VERIFIED status at standard collateral factor.',
-      asset: 'XAU/USD (Tokenized Gold)',
+      scenario_id: 'scen_normal',
+      title: 'Scenario A: Normal Operation (Healthy Multi-Lane Consensus)',
+      description: 'Stationary market conditions. Baseline OSM queues $100.00. All five methodology lanes agree within narrow dispersion (median $100.05). Market settles at $100.05. Protocol issues VERIFIED status at standard 80% LTV.',
+      asset: 'RWA_USD_01 (Tokenized Asset)',
       category: 'NORMAL',
-      p_osm_initial: 95.20,
-      expected_market: 95.15,
-      ltv_default: 0.60
+      p_osm_initial: 100.00,
+      expected_market: 100.05,
+      ltv_default: 0.80
     },
     {
-      scenario_id: 'scen_flash_spike',
-      title: 'Flash Spike Attack (Transient Upstream Anomaly)',
-      description: 'Single-block liquidity manipulation causes a sudden +12% price spike. Lane 1 (Kalman) Mahalanobis innovation gate triggers (D² > 6.635, α=0.01) and rejects the observation, while Lane 2 (Huber) attenuates the quote weight.',
-      asset: 'XAU/USD (Tokenized Gold)',
-      category: 'FLASH_SPIKE',
-      p_osm_initial: 106.50,
-      expected_market: 95.00,
-      ltv_default: 0.60
+      scenario_id: 'scen_flash_crash',
+      title: 'Scenario B: Flash Crash Detection (Stale Upstream OSM @ $100 vs Market @ $93.50)',
+      description: 'Macro liquidity event / flash crash. Upstream OSM enters verification window stale @ $100.00. Five methodology lanes track genuine market price at $93.50. Evidence Engine detects abnormal deviation and applies RESTRICTED 50% LTV and protective haircuts.',
+      asset: 'RWA_USD_01 (Tokenized Asset)',
+      category: 'FLASH_CRASH',
+      p_osm_initial: 100.00,
+      expected_market: 93.50,
+      ltv_default: 0.80
     },
     {
       scenario_id: 'scen_poisoned_validator',
-      title: 'Poisoned Validator Node (Adversarial Sybil Outlier)',
-      description: 'Validator Node 2 is compromised and submits a malicious +20% quote. Lane 2 (Huber M-estimation) calculates a high standardized residual and shrinks its weight. Lane 3 (JSD) isolates the divergent node.',
-      asset: 'XAU/USD (Tokenized Gold)',
+      title: 'Scenario C: Poisoned Validator Isolation (Adversarial Sybil Outlier @ $500)',
+      description: 'Adversarial Sybil node submits an extreme $500.00 price quote. Lane 2 (Huber M-estimation) and within-lane median isolate and suppress the malicious quote towards zero weight, preserving healthy P_DEC consensus and 80% LTV.',
+      asset: 'RWA_USD_01 (Tokenized Asset)',
       category: 'POISONED_VALIDATOR',
-      p_osm_initial: 95.00,
-      expected_market: 95.10,
-      ltv_default: 0.60
-    },
-    {
-      scenario_id: 'scen_validator_outage',
-      title: 'Validator Infrastructure Outage (Quorum Stress)',
-      description: 'Network partition or infrastructure crash takes Nodes 4 and 5 offline. The verification coordinator validates that remaining 3 nodes satisfy minimum quorum (N=3), flagging elevated dispersion.',
-      asset: 'XAU/USD (Tokenized Gold)',
-      category: 'VALIDATOR_OUTAGE',
-      p_osm_initial: 95.00,
-      expected_market: 94.90,
-      ltv_default: 0.60
-    },
-    {
-      scenario_id: 'scen_slow_drift',
-      title: 'Slow Cumulative Drift (Stealth Manipulation)',
-      description: 'Adversary induces subtle price creep (+0.25% per tick) beneath single-tick thresholds. Lane 5 (Page CUSUM) accumulates sequential deviations in S+, tripping threshold h=4.0 with early warning.',
-      asset: 'XAU/USD (Tokenized Gold)',
-      category: 'SLOW_DRIFT',
-      p_osm_initial: 95.00,
-      expected_market: 98.20,
-      ltv_default: 0.60
-    },
-    {
-      scenario_id: 'scen_rwa_depeg',
-      title: 'RWA Secondary Depeg (NAV Jump Divergence)',
-      description: 'Secondary liquidity collapses by -9% while physical redemption anchor remains at $100.00. Lane 4 (Ornstein-Uhlenbeck) standardized spread residual exceeds diffusion bounds (|z| >= 3.5 under configured threshold), flagging a structural residual alert / jump candidate.',
-      asset: 'PAXG / XAU (Tokenized Gold RWA)',
-      category: 'RWA_DEPEG',
       p_osm_initial: 100.00,
-      expected_market: 91.00,
-      ltv_default: 0.60
+      expected_market: 100.00,
+      ltv_default: 0.80
+    },
+    {
+      scenario_id: 'scen_market_dislocation',
+      title: 'Scenario D: Market Observer Dislocation (P_DEC @ $100 != P_MARKET @ $70)',
+      description: 'Extreme off-chain market dislocation / corrupted attestor (>20% divergence). Evidence Engine detects severe triangular failure and triggers Emergency Circuit Breaker (HALTED).',
+      asset: 'RWA_USD_01 (Tokenized Asset)',
+      category: 'MARKET_DISLOCATION',
+      p_osm_initial: 100.00,
+      expected_market: 70.00,
+      ltv_default: 0.80
+    },
+    {
+      scenario_id: 'scen_osm_failure',
+      title: 'Scenario E: Upstream OSM Read Failure (Decentralized Fallback)',
+      description: 'Upstream OSM oracle fails or reverts (P_OSM = $0.00). AEGIS automatically executes decentralized failsafe fallback to robust P_DEC ($100.00) under RESTRICTED parameters.',
+      asset: 'RWA_USD_01 (Tokenized Asset)',
+      category: 'OSM_FAILURE',
+      p_osm_initial: 0.00,
+      expected_market: 100.00,
+      ltv_default: 0.80
     }
   ];
 }
 
 export async function runScenario(
   scenarioId: string,
-  ltvFactor: number = 0.60,
+  ltvFactor: number = 0.80,
   stepSeconds: number = 3600
 ): Promise<ScenarioRecord> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/scenarios/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scenario_id: scenarioId,
-        ltv_factor: ltvFactor,
-        step_seconds: stepSeconds,
-        custom_seed: 42
-      }),
-      cache: 'no-store'
-    });
+  const urls = [
+    `${API_BASE_URL}/api/scenarios/run`,
+    'http://127.0.0.1:8000/api/scenarios/run',
+    'http://localhost:8000/api/scenarios/run'
+  ];
 
-    if (res.ok) {
-      return await res.json();
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenario_id: scenarioId,
+          ltv_factor: ltvFactor,
+          step_seconds: stepSeconds,
+          custom_seed: 42
+        }),
+        cache: 'no-store'
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Try next endpoint fallback
     }
-  } catch {
-    // Fallback deterministic local engine
   }
 
   return generateLocalScenarioRecord(scenarioId, ltvFactor, stepSeconds);

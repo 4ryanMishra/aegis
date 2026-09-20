@@ -115,7 +115,19 @@ class EvidenceEngine:
         # 5. Triangular conflict and anomaly classification
         conflict_detected = False
 
-        if d_osm_market > self.config.high_deviation_threshold and d_dec_market < d_osm_market:
+        if osm_val <= 0.0:
+            # Upstream OSM failed / reverted
+            oracle_status = OracleStatus.SUSPECTED_INCONSISTENCY
+            reason_codes.append("OSM_READ_FAILURE_DECENTRALIZED_FALLBACK")
+            conflict_detected = True
+
+        elif d_dec_market > 0.20 or (d_osm_dec > 0.20 and d_osm_market > 0.20 and d_dec_market > 0.15):
+            # Extreme off-chain market dislocation (>20%)
+            oracle_status = OracleStatus.HALTED_CIRCUIT_BREAKER
+            reason_codes.append("EXTREME_TRIANGULAR_DIVERGENCE_CIRCUIT_BREAKER")
+            conflict_detected = True
+
+        elif d_osm_market > self.config.high_deviation_threshold and d_dec_market < d_osm_market:
             # Clear OSM spike or lag; validator reference confirms market
             oracle_status = OracleStatus.SUSPECTED_INCONSISTENCY
             reason_codes.append("OSM_DEVIATION_EXCEEDS_HIGH_THRESHOLD")
@@ -128,7 +140,7 @@ class EvidenceEngine:
             reason_codes.append("TRIANGULAR_DIVERGENCE_ACROSS_SOURCES")
             conflict_detected = True
 
-        elif d_osm_dec > self.config.abnormal_deviation_threshold:
+        elif d_osm_dec > self.config.abnormal_deviation_threshold or d_osm_market > self.config.abnormal_deviation_threshold:
             oracle_status = OracleStatus.EVIDENCE_OF_ABNORMAL_DEVIATION
             reason_codes.append("EVIDENCE_OF_ABNORMAL_OSM_DEVIATION")
             conflict_detected = True

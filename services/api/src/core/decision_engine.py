@@ -67,7 +67,15 @@ class DecisionEngine:
         reason_codes = list(evidence.reason_codes)
 
         # 2. Check Quorum & Integrity Preconditions
-        if not p_dec.quorum_met:
+        if osm_val <= 0.0:
+            selected_price = dec_val
+            action = "RESTRICT"
+            dispute_status = "RESTRICTED"
+            confidence = 0.90
+            selected_source = "P_DEC (FAILSAFE)"
+            reason_codes.append("OSM_READ_FAILURE_DECENTRALIZED_FALLBACK")
+
+        elif not p_dec.quorum_met:
             selected_price = min(osm_val, dec_val)
             action = "RESTRICT"
             dispute_status = "RESTRICTED"
@@ -75,14 +83,18 @@ class DecisionEngine:
             selected_source = "RESTRICT_FAILSAFE"
             reason_codes.append("INSUFFICIENT_VALIDATOR_QUORUM_FALLBACK")
 
-        # 3. Severe Triangular Divergence Check (> 15% across all feeds)
+        # 3. Severe Triangular Divergence Check / Circuit Breaker Halt
         elif (
-            evidence.d_osm_market is not None
-            and evidence.d_dec_market is not None
-            and evidence.d_osm_market > 0.15
-            and evidence.d_dec_market > 0.15
+            evidence.oracle_status == OracleStatus.HALTED_CIRCUIT_BREAKER
+            or (
+                evidence.d_osm_market is not None
+                and evidence.d_dec_market is not None
+                and evidence.d_osm_market > 0.15
+                and evidence.d_dec_market > 0.15
+            )
+            or (evidence.d_dec_market is not None and evidence.d_dec_market > 0.20)
         ):
-            selected_price = min(osm_val, dec_val, mkt_val)
+            selected_price = 0.0
             action = "HALT"
             dispute_status = "HALTED"
             confidence = 0.99
@@ -102,7 +114,7 @@ class DecisionEngine:
                 dispute_status = "VERIFIED"
                 reason_codes.append("OSM_CONSISTENCY_CONFIRMED")
 
-            elif evidence.oracle_status == OracleStatus.SUSPECTED_INCONSISTENCY:
+            elif evidence.oracle_status in (OracleStatus.SUSPECTED_INCONSISTENCY, OracleStatus.EVIDENCE_OF_ABNORMAL_DEVIATION):
                 # OSM deviated, but validator reference aligns with market observation
                 selected_price = dec_val
                 selected_source = "P_DEC"
@@ -161,15 +173,19 @@ class DecisionEngine:
             reason_codes.append("CONSERVATIVE_COLLATERAL_HAIRCUT_APPLIED")
 
         # 5. Collateral Financial Consequence Calculation
-        baseline_borrow_capacity = round(osm_val * ltv, 2)
-        aegis_borrow_capacity = round(selected_price * ltv, 2)
-        diff = round(baseline_borrow_capacity - aegis_borrow_capacity, 2)
-        
-        # Overstatement percentage prevented relative to baseline
-        if osm_val > selected_price:
-            exposure_pct = round(((osm_val - selected_price) / osm_val) * 100.0, 2)
-        else:
+        if osm_val <= 0.0:
+            baseline_borrow_capacity = 0.0
+            aegis_borrow_capacity = round(selected_price * ltv, 2)
+            diff = 0.0
             exposure_pct = 0.0
+        else:
+            baseline_borrow_capacity = round(osm_val * ltv, 2)
+            aegis_borrow_capacity = round(selected_price * ltv, 2)
+            diff = round(baseline_borrow_capacity - aegis_borrow_capacity, 2)
+            if osm_val > selected_price:
+                exposure_pct = round(((osm_val - selected_price) / osm_val) * 100.0, 2)
+            else:
+                exposure_pct = 0.0
 
         decision = DecisionResult(
             policy=self.policy,

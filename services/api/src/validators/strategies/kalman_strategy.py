@@ -47,9 +47,12 @@ class KalmanStrategy(ValidatorStrategy):
         if context.scenario_type == "FLASH_SPIKE":
             # Sudden transient spike in observation (e.g. +12%)
             observation = round(p_base * 1.12, 2)
+        elif context.scenario_type == "FLASH_CRASH":
+            # Market real-move at p_base ($93.50)
+            observation = round(p_base, 2)
         elif context.scenario_type == "POISONED_VALIDATOR" and context.adversarial_node_id == validator_id:
-            # Adversarial poison attempt
-            observation = round(p_base * 1.25, 2)
+            # Adversarial poison attempt ($500.0)
+            observation = 500.0
         elif context.scenario_type == "SLOW_DRIFT":
             # Small, gradual incremental drift (e.g. +0.8%)
             observation = round(p_base * 1.008, 2)

@@ -27,7 +27,7 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
       const dMean = m.mean_divergence_per_lane?.[v.lane_id] ?? 0.012;
       return `D̄_JS: ${dMean.toFixed(3)}`;
     } else if (meth.includes('ORNSTEIN') || meth.includes('ou')) {
-      if (!m.is_rwa || !m.has_anchor) return 'N/A (Unanchored)';
+      if (!m.is_rwa || !m.has_anchor || v.decision === 'NOT_APPLICABLE') return 'NOT APPLICABLE';
       const z = m.standardized_residual ?? 0;
       return `z_OU = ${z.toFixed(2)} σ`;
     } else if (meth.includes('PAGE_CUSUM') || meth.includes('cusum')) {
@@ -39,6 +39,14 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
   };
 
   const getStatusBadge = (v: ValidatorObservation) => {
+    if (v.decision === 'NOT_APPLICABLE') {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+          NOT APPLICABLE
+        </span>
+      );
+    }
+
     const isAnomalous = v.anomaly_score > 0.4 || v.decision.includes('GATED') || v.decision.includes('OUTLIER') || v.decision.includes('ALERT') || v.decision.includes('CANDIDATE') || v.decision.includes('DISAGREEMENT');
 
     if (isAnomalous) {

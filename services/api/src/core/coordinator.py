@@ -83,12 +83,23 @@ class VerificationCoordinator:
 
         # 2. Context for the Five Methodology Lanes
         scenario_type = fixture.get("scenario_type", "NORMAL")
+        
+        if scenario_type == "MARKET_DISLOCATION":
+            validator_hint = fixture.get("anchor_price", 100.0)
+            market_price = fixture.get("expected_market", 70.0)
+        elif scenario_type == "OSM_FAILURE":
+            validator_hint = fixture.get("expected_market", 100.0)
+            market_price = fixture.get("expected_market", 100.0)
+        else:
+            validator_hint = fixture.get("expected_market", p_osm.value if p_osm.value > 0 else 100.0)
+            market_price = fixture.get("expected_market", p_osm.value)
+
         context = ReferenceContext(
             asset=fixture["asset"],
             p_osm=p_osm.value,
             window_start_ts=start_ts,
             current_ts=start_ts + step_elapsed,
-            expected_market_hint=fixture.get("expected_market", p_osm.value),
+            expected_market_hint=validator_hint,
             anchor_price=fixture.get("anchor_price", p_osm.value),
             is_rwa=fixture.get("is_rwa", True),
             scenario_type=scenario_type,
@@ -107,7 +118,7 @@ class VerificationCoordinator:
         # 5. P_MARKET Terminal Observation
         if is_finalized:
             p_market = self.market_adapter.observe_market(
-                price=fixture.get("expected_market", p_osm.value),
+                price=market_price,
                 timestamp=end_ts,
                 symbol=fixture["asset"],
                 status=DataStatus.SIMULATED,
