@@ -153,10 +153,10 @@ To preserve mathematical coherence, AEGIS explicitly differentiates between **Pr
   - Standardized spread residual:
     $$z_{OU} = \frac{S_t - \mathbb{E}[S_t \mid S_0]}{\sqrt{\text{Var}(S_t \mid S_0)}}$$
   - Jump candidate test:
-    $$\text{If } |z_{OU}| \ge 3.5 \implies \text{Flag structural jump / depeg candidate}$$
-- **Concrete Inputs:** Secondary market spot price $P_{spot}$, primary redemption NAV/anchor price $P_{anchor}$, calibrated parameters $(\theta, \mu, \sigma, \Delta t)$, asset RWA flag.
-- **Output Format:** Log spread $S_t$, conditional expectation, conditional variance, standardized residual $z_{OU}$, jump candidate flag (`OU_JUMP_DIFFUSION_CANDIDATE` vs `DIFFUSION_CONSISTENT`), reason code. Does not output an eligible price estimate for $P_{DEC}$.
-- **Security Role:** Disentangles normal market discount/premium fluctuations from systemic depeg shocks, preventing protocol vaults from overvaluing impaired RWA collateral.
+    $$\text{If } |z_{OU}| \ge 3.5 \implies \text{Flag structural residual alert / jump candidate (under configured threshold)}$$
+- **Concrete Inputs:** Secondary market spot price $P_{spot}$, primary redemption NAV/anchor price $P_{anchor}$, calibrated parameters $(\theta, \mu, \sigma, \Delta t)$, configured jump threshold $z_{thresh} = 3.5$, asset RWA flag.
+- **Output Format:** Log spread $S_t$, conditional expectation, conditional variance, standardized residual $z_{OU}$, jump candidate flag (`DIFFUSION_MODEL_INCONSISTENCY` vs `DIFFUSION_CONSISTENT`), reason code (`STRUCTURAL_RESIDUAL_ALERT`). Does not output an eligible price estimate for $P_{DEC}$.
+- **Security Role:** Disentangles normal market discount/premium fluctuations from structural residual alerts, preventing protocol vaults from overvaluing impaired RWA collateral under configured scenarios.
 - **Known Failure Modes / Limitations:** Requires an authoritative off-chain redemption anchor feed; parameter miscalibration ($\theta, \sigma$) can misdiagnose high legitimate volatility as a jump.
 
 ---

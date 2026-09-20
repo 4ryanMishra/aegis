@@ -107,7 +107,7 @@
     "scenario_id": "scen_rwa_depeg",
     "scenario_type": "RWA_DEPEG",
     "title": "RWA Secondary Market Depeg / Redemption Divergence",
-    "description": "Secondary CLOB liquidity collapses by -9% while the physical redemption anchor remains at $100.00. Lane 4 (Ornstein-Uhlenbeck) standardized spread residual exceeds diffusion bounds (|z| > 3.5), flagging a jump candidate and applying protective collateral haircuts.",
+    "description": "Secondary CLOB liquidity collapses by -9% while the physical redemption anchor remains at $100.00. Lane 4 (Ornstein-Uhlenbeck) standardized spread residual exceeds diffusion bounds (|z| >= 3.5 under configured threshold), flagging a structural residual alert / jump candidate and applying protective collateral haircuts.",
     "asset": "PAXG / XAU (Tokenized Gold RWA)",
     "category": "RWA_DEPEG",
     "p_osm_initial": 100.00,

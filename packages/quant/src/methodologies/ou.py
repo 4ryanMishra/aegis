@@ -31,6 +31,7 @@ class OUResult(BaseModel):
     conditional_variance: Optional[float]
     conditional_std: Optional[float]
     standardized_residual: Optional[float]
+    jump_threshold: float = 3.5
     jump_candidate: bool
     decision: str
     reason_code: str
@@ -38,6 +39,10 @@ class OUResult(BaseModel):
     uncertainty_lower: float
     uncertainty_upper: float
     anomaly_score: float
+
+    @property
+    def is_jump_candidate(self) -> bool:
+        return self.jump_candidate
 
 
 class OrnsteinUhlenbeckAnalyzer:
@@ -52,7 +57,7 @@ class OrnsteinUhlenbeckAnalyzer:
         mu: float = 0.0,          # Long-term equilibrium log-spread (0.0 = parity)
         sigma: float = 0.02,      # Volatility of spread diffusion
         dt: float = 1.0,          # Observation interval horizon (normalized 1 hr)
-        jump_threshold: float = 3.5,  # Standard deviations for jump candidate
+        jump_threshold: float = 3.5,  # Standard deviations for jump candidate (|z_OU| >= 3.5)
     ):
         self.theta = theta
         self.mu = mu
@@ -92,6 +97,7 @@ class OrnsteinUhlenbeckAnalyzer:
                 conditional_variance=None,
                 conditional_std=None,
                 standardized_residual=None,
+                jump_threshold=self.jump_threshold,
                 jump_candidate=False,
                 decision="NOT_APPLICABLE",
                 reason_code="RWA_ANCHOR_NOT_AVAILABLE",
@@ -113,15 +119,18 @@ class OrnsteinUhlenbeckAnalyzer:
         expected_spread = mu + (s_prev - mu) * decay
 
         # Var(S_t | S_{prior}) = (sigma^2 / (2 * theta)) * (1 - exp(-2 * theta * dt))
-        var_factor = (sigma ** 2) / (2.0 * theta) if theta > 1e-6 else (sigma ** 2) * dt
-        cond_variance = var_factor * (1.0 - math.exp(-2.0 * theta * dt))
+        if theta > 1e-6:
+            cond_variance = ((sigma ** 2) / (2.0 * theta)) * (1.0 - math.exp(-2.0 * theta * dt))
+        else:
+            cond_variance = (sigma ** 2) * dt
         cond_variance = max(cond_variance, 1e-12)
         cond_std = math.sqrt(cond_variance)
 
         # 4. Standardized residual: difference from conditional equilibrium expectation
+        # Standardized residual: z_OU = (observed_spread - expected_spread) / sqrt(conditional_variance)
         std_residual = (log_spread - expected_spread) / cond_std
 
-        # 5. Jump Candidate Flag
+        # 5. Jump Candidate Flag under configured threshold (|z_OU| >= jump_threshold)
         is_jump_candidate = abs(std_residual) >= self.jump_threshold
 
         if is_jump_candidate:
@@ -156,6 +165,7 @@ class OrnsteinUhlenbeckAnalyzer:
             conditional_variance=round(cond_variance, 8),
             conditional_std=round(cond_std, 6),
             standardized_residual=round(std_residual, 4),
+            jump_threshold=round(self.jump_threshold, 2),
             jump_candidate=is_jump_candidate,
             decision=decision,
             reason_code=reason_code,

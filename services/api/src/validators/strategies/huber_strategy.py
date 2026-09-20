@@ -59,8 +59,14 @@ class HuberStrategy(ValidatorStrategy):
             # All quotes drift slightly upwards (+0.9%)
             quotes = [round(q * 1.009, 2) for q in quotes]
         elif context.scenario_type == "RWA_DEPEG":
-            # Spot quotes drop consistently
-            quotes = [round(q * 0.915, 2) for q in quotes]
+            # Spot quotes reflect secondary market discount around p_base
+            quotes = [
+                round(p_base - 0.08, 2),
+                round(p_base + 0.05, 2),
+                round(p_base - 0.02, 2),
+                round(p_base + 0.10, 2),
+                round(p_base, 2),
+            ]
 
         # Execute deterministic Huber IRLS estimation
         res = self.estimator.estimate(quotes)

@@ -73,7 +73,7 @@ To preserve mathematical consistency, AEGIS explicitly differentiates between **
    - **Formulation:** Evaluates symmetric divergence $D_{JS} \in [0, 1]$ over discrete probability grids across validator uncertainty distributions. Produces pairwise matrices and consensus disagreement scores.
 4. **Lane 4 — Ornstein-Uhlenbeck RWA Residual Analysis:**
    - **Role:** `RWA_STRUCTURAL_CHECK`
-   - **Formulation:** For anchored RWAs, tracks continuous-time spread $S_t = \ln(P_{spot}) - \ln(P_{anchor})$ under mean-reverting OU SDE. Standardized residual $|z_{OU}| \ge 3.5$ flags structural jump candidates. Returns `NOT_APPLICABLE` for non-RWA assets.
+   - **Formulation:** For anchored RWAs, tracks continuous-time spread $S_t = \ln(P_{spot}) - \ln(P_{anchor})$ under mean-reverting OU SDE. Standardized residual $|z_{OU}| \ge 3.5$ (under configured threshold) flags structural residual alerts / jump candidates. Returns `NOT_APPLICABLE` for non-RWA assets.
 5. **Lane 5 — Page CUSUM Sequential Drift Detection:**
    - **Role:** `SEQUENTIAL_DRIFT_DETECTOR`
    - **Formulation:** Standardized price increment $y_k = (P_k - P_{k-1})/\sigma_k$. Two-sided sequential accumulators $S_k^+ = \max(0, S_{k-1}^+ + y_k - \kappa)$, $S_k^- = \max(0, S_{k-1}^- - y_k - \kappa)$ with slack $\kappa=0.5$ and decision threshold $h=4.0$. Detects persistent directional micro-drifts that evade point-in-time threshold checks.

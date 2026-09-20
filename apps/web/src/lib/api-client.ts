@@ -66,7 +66,7 @@ export async function fetchScenarios(): Promise<ScenarioListItem[]> {
     {
       scenario_id: 'scen_rwa_depeg',
       title: 'RWA Secondary Depeg (NAV Jump Divergence)',
-      description: 'Secondary liquidity collapses by -9% while physical redemption anchor remains at $100.00. Lane 4 (Ornstein-Uhlenbeck) standardized spread residual exceeds diffusion bounds (|z| > 3.5), flagging jump candidate.',
+      description: 'Secondary liquidity collapses by -9% while physical redemption anchor remains at $100.00. Lane 4 (Ornstein-Uhlenbeck) standardized spread residual exceeds diffusion bounds (|z| >= 3.5 under configured threshold), flagging a structural residual alert / jump candidate.',
       asset: 'PAXG / XAU (Tokenized Gold RWA)',
       category: 'RWA_DEPEG',
       p_osm_initial: 100.00,
@@ -305,11 +305,12 @@ function generateLocalScenarioRecord(
       uncertainty_lower: null,
       uncertainty_upper: null,
       anomaly_score: scenarioId === 'scen_rwa_depeg' ? 0.95 : 0.05,
-      decision: scenarioId === 'scen_rwa_depeg' ? 'OU_JUMP_DIFFUSION_CANDIDATE' : 'OU_SPREAD_EQUILIBRIUM',
-      reason_code: scenarioId === 'scen_rwa_depeg' ? 'EXTREME_STANDARDIZED_RESIDUAL' : 'STATIONARY_SPREAD_DIFFUSION',
+      decision: scenarioId === 'scen_rwa_depeg' ? 'DIFFUSION_MODEL_INCONSISTENCY' : 'DIFFUSION_CONSISTENT',
+      reason_code: scenarioId === 'scen_rwa_depeg' ? 'STRUCTURAL_RESIDUAL_ALERT' : 'OU_SPREAD_EQUILIBRIUM',
       intermediate_metrics: {
         is_rwa: isRwa,
         has_anchor: true,
+        is_applicable: isRwa,
         spot_price: pMktVal,
         anchor_price: anchorPrice,
         log_spread: Math.log(pMktVal / anchorPrice),
@@ -319,8 +320,11 @@ function generateLocalScenarioRecord(
         dt: 1.0,
         expected_spread: 0.0,
         conditional_variance: 0.0003,
+        conditional_std: 0.0173,
         standardized_residual: scenarioId === 'scen_rwa_depeg' ? -5.44 : -0.12,
+        jump_threshold: 3.5,
         is_jump_candidate: scenarioId === 'scen_rwa_depeg',
+        jump_candidate: scenarioId === 'scen_rwa_depeg',
         not_applicable_reason: null
       },
       diagnostic_evidence: {
@@ -328,6 +332,7 @@ function generateLocalScenarioRecord(
         spot_price: pMktVal,
         anchor_price: anchorPrice,
         standardized_residual: scenarioId === 'scen_rwa_depeg' ? -5.44 : -0.12,
+        jump_threshold: 3.5,
         jump_candidate: scenarioId === 'scen_rwa_depeg',
       },
       status: 'SIMULATED' as const,

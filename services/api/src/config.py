@@ -27,6 +27,12 @@ class AegisConfig(BaseModel):
         description="High relative deviation threshold indicating major oracle divergence."
     )
     
+    # Ornstein-Uhlenbeck RWA Residual Analysis Threshold
+    ou_jump_threshold: float = Field(
+        default=3.5,
+        description="Canonical standardized residual threshold (|z_OU| >= 3.5) for flagging structural RWA jump candidates."
+    )
+    
     # Validator Quorum & Dispersion
     min_validator_quorum: int = Field(
         default=3,

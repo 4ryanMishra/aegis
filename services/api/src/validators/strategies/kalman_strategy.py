@@ -54,8 +54,8 @@ class KalmanStrategy(ValidatorStrategy):
             # Small, gradual incremental drift (e.g. +0.8%)
             observation = round(p_base * 1.008, 2)
         elif context.scenario_type == "RWA_DEPEG":
-            # Spot decoupled from anchor
-            observation = round(p_base * 0.91, 2)
+            # Spot decoupled from anchor: secondary market at p_base
+            observation = round(p_base, 2)
         else:
             # Normal condition with slight empirical observation jitter (deterministic from seed)
             jitter = (((hash(validator_id + str(context.seed) + "kalman") % 41) - 20) / 100.0)

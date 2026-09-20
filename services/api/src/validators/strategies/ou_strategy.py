@@ -5,6 +5,7 @@ Methodology Lane 4: Ornstein-Uhlenbeck RWA Residual Analysis.
 from typing import List, Dict, Any, Optional
 from ..base import ValidatorStrategy, ReferenceContext
 from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
+from ...config import default_config
 from packages.quant.src.methodologies.ou import OrnsteinUhlenbeckAnalyzer
 
 
@@ -29,8 +30,17 @@ class OUStrategy(ValidatorStrategy):
     def default_source_ids(self) -> List[str]:
         return ["rwa_redemption_anchor", "secondary_clob_spot"]
 
-    def __init__(self, theta: float = 0.5, mu: float = 0.0, sigma: float = 0.02):
-        self.analyzer = OrnsteinUhlenbeckAnalyzer(theta=theta, mu=mu, sigma=sigma)
+    def __init__(
+        self,
+        theta: float = 0.5,
+        mu: float = 0.0,
+        sigma: float = 0.02,
+        jump_threshold: Optional[float] = None,
+    ):
+        actual_threshold = jump_threshold if jump_threshold is not None else default_config.ou_jump_threshold
+        self.analyzer = OrnsteinUhlenbeckAnalyzer(
+            theta=theta, mu=mu, sigma=sigma, jump_threshold=actual_threshold
+        )
 
     def generate(
         self,
@@ -46,7 +56,7 @@ class OUStrategy(ValidatorStrategy):
         spot = p_base
 
         if context.scenario_type == "RWA_DEPEG":
-            # Significant real-world decoupling between spot and redemption anchor
+            # Significant secondary market discount divergence between spot and redemption anchor
             # Spot collapses by -9% while anchor remains $100
             spot = round(anchor * 0.91, 2)
         elif context.scenario_type == "FLASH_SPIKE":
@@ -73,15 +83,21 @@ class OUStrategy(ValidatorStrategy):
             "conditional_variance": res.conditional_variance,
             "conditional_std": res.conditional_std,
             "standardized_residual": res.standardized_residual,
+            "jump_threshold": res.jump_threshold,
             "jump_candidate": res.jump_candidate,
+            "is_jump_candidate": res.jump_candidate,
+            "is_rwa": is_rwa,
+            "has_anchor": anchor is not None and anchor > 0,
         }
 
         diagnostic_evidence = {
             "is_applicable": res.is_applicable,
             "log_spread": res.log_spread,
             "standardized_residual": res.standardized_residual,
+            "jump_threshold": res.jump_threshold,
             "jump_candidate": res.jump_candidate,
             "conditional_variance": res.conditional_variance,
+            "conditional_std": res.conditional_std,
             "expected_spread": res.expected_spread,
             "implied_price_hint": res.estimated_price,
             "decision": res.decision,

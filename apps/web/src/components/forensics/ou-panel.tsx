@@ -8,8 +8,9 @@ interface OUPanelProps {
 
 export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
   const metrics = (validator.intermediate_metrics || {}) as Partial<OUMetrics>;
-  const isApplicable = metrics.is_rwa && metrics.has_anchor;
-  const isJump = Boolean(metrics.is_jump_candidate) || Math.abs(metrics.standardized_residual || 0) >= 3.5;
+  const isApplicable = metrics.is_applicable ?? (metrics.is_rwa && metrics.has_anchor);
+  const threshold = metrics.jump_threshold ?? 3.5;
+  const isJump = Boolean(metrics.is_jump_candidate || metrics.jump_candidate) || Math.abs(metrics.standardized_residual || 0) >= threshold;
 
   if (!isApplicable) {
     return (
@@ -60,7 +61,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
           {isJump ? <ShieldAlert className="w-4 h-4 text-amber-700" /> : <CheckCircle2 className="w-4 h-4 text-emerald-700" />}
           <div>
             <span className="font-bold uppercase tracking-wider text-[11px]">
-              {isJump ? 'OU JUMP-DIFFUSION CANDIDATE / SECONDARY MARKET DEPEG' : 'OU SPREAD EQUILIBRIUM (STATIONARY DIFFUSION)'}
+              {isJump ? 'STRUCTURAL RESIDUAL ALERT / JUMP CANDIDATE' : 'OU SPREAD EQUILIBRIUM (STATIONARY DIFFUSION)'}
             </span>
             <div className="text-[10px] opacity-80 mt-0.5">
               Reason Code: <span className="font-mono font-semibold">{validator.reason_code}</span>
@@ -102,7 +103,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
-            <div className="text-[10px] text-slate-500 font-mono">Jump Threshold |z| ≥ 3.5</div>
+            <div className="text-[10px] text-slate-500 font-mono">Jump Threshold |z| ≥ {threshold.toFixed(1)}</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
               {isJump ? 'TRIPPED (JUMP)' : 'WITHIN BOUNDS'}
             </div>
@@ -131,7 +132,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
           <div className="p-2 bg-white rounded border border-borderHairline">
             <div className="text-[10px] text-slate-500 font-mono">Conditional Std σ_cond</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-              {(Math.sqrt(metrics.conditional_variance ?? 0.0003) * 100).toFixed(2)}%
+              {((metrics.conditional_std ?? Math.sqrt(metrics.conditional_variance ?? 0.0003)) * 100).toFixed(2)}%
             </div>
           </div>
         </div>
@@ -164,7 +165,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
           <Info className="w-3 h-3 text-slate-500" />
           Lane 4 Security Role & Mathematical Bound:
         </div>
-        Models the secondary market spread relative to physical redemption anchor via continuous-time Ornstein-Uhlenbeck mean reversion. If the standardized residual exceeds |z| ≥ 3.5, it flags a structural residual alert / jump candidate to trigger protective collateral actions in the Decision Engine.
+        Models the secondary market spread relative to physical redemption anchor via continuous-time Ornstein-Uhlenbeck mean reversion. If the standardized residual exceeds |z| ≥ {threshold.toFixed(1)} under the configured threshold, it flags a structural residual alert / jump candidate to trigger protective collateral actions in the Decision Engine.
       </div>
     </div>
   );

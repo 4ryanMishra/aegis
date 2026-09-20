@@ -76,12 +76,28 @@ def test_scenario_slow_drift(coordinator):
 
 
 def test_scenario_rwa_depeg(coordinator):
-    """RWA secondary depeg triggers Ornstein-Uhlenbeck structural residual alert."""
+    """
+    RWA secondary depeg triggers Ornstein-Uhlenbeck structural residual alert,
+    propagating diagnostic evidence to Evidence Engine and Decision Engine without hardcoded states.
+    """
     req = ScenarioRunRequest(scenario_id="scen_rwa_depeg", step_seconds=3600)
     res = coordinator.run_scenario(req)
     ou_val = [v for v in res.validators if v.methodology == "OU_RESIDUAL"][0]
     assert ou_val.intermediate_metrics["jump_candidate"] is True
+    assert ou_val.intermediate_metrics["jump_threshold"] == 3.5
     assert ou_val.decision == "DIFFUSION_MODEL_INCONSISTENCY"
+    assert ou_val.reason_code == "STRUCTURAL_RESIDUAL_ALERT"
+
+    # Verify diagnostic evidence propagated through Evidence Engine
+    assert res.evidence.ou_structural_state == "JUMP_CANDIDATE"
+    assert "OU_STRUCTURAL_RESIDUAL_ALERT" in res.evidence.reason_codes
+
+    # Verify Decision Engine handled the inconsistency dynamically
+    assert round(res.decision.final_price, 1) == 91.0
+    assert res.decision.selected_source == "P_DEC"
+    assert res.decision.action == "ALLOW"
+    assert res.decision.dispute_status == "WARNING"
+    assert round(res.collateral.risk_exposure_pct, 1) == 9.0
 
 
 def test_aggregator_quorum_failure():

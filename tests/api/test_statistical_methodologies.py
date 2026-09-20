@@ -165,6 +165,65 @@ def test_ou_extreme_residual_jump_candidate():
     assert abs(res.standardized_residual) > 3.5
 
 
+def test_ou_standardized_residual_exact_mathematics():
+    """
+    Verify exact analytical mathematics for continuous-time Ornstein-Uhlenbeck:
+      E[S_t | S_{prior}] = mu + (S_{prior} - mu) * exp(-theta * dt)
+      Var(S_t | S_{prior}) = (sigma^2 / (2 * theta)) * (1 - exp(-2 * theta * dt))
+      cond_std = sqrt(Var(S_t | S_{prior}))
+      z_OU = (observed_spread - expected_spread) / cond_std
+      jump_candidate = (|z_OU| >= jump_threshold)
+
+    Verifies that z_OU divides by standard deviation (cond_std), NOT variance,
+    and adheres to the canonical configured jump_threshold = 3.5.
+    """
+    theta = 0.5
+    mu = 0.0
+    sigma = 0.02
+    dt = 1.0
+    jump_thresh = 3.5
+    ou = OrnsteinUhlenbeckAnalyzer(
+        theta=theta, mu=mu, sigma=sigma, dt=dt, jump_threshold=jump_thresh
+    )
+
+    spot = 94.0
+    anchor = 100.0
+    res = ou.evaluate(spot_price=spot, anchor_price=anchor, is_rwa=True)
+
+    # Independent analytical calculations
+    observed_spread = math.log(spot) - math.log(anchor)
+    expected_spread = mu + (mu - mu) * math.exp(-theta * dt)
+    cond_variance = ((sigma ** 2) / (2.0 * theta)) * (1.0 - math.exp(-2.0 * theta * dt))
+    cond_std = math.sqrt(cond_variance)
+    expected_z = (observed_spread - expected_spread) / cond_std
+
+    # 1. Verify exact mathematical components
+    assert math.isclose(res.log_spread, observed_spread, rel_tol=1e-5)
+    assert math.isclose(res.expected_spread, expected_spread, abs_tol=1e-5)
+    assert math.isclose(res.conditional_variance, cond_variance, rel_tol=1e-5)
+    assert math.isclose(res.conditional_std, cond_std, rel_tol=1e-4)
+    assert math.isclose(res.standardized_residual, expected_z, rel_tol=1e-4)
+
+    # 2. Verify division is strictly by cond_std = sqrt(cond_variance), NOT cond_variance
+    assert abs(res.standardized_residual) < 10.0  # around 3.89
+    variance_divided_z = (observed_spread - expected_spread) / cond_variance
+    assert abs(variance_divided_z) > 100.0  # around -244.7, confirming divisor is std, not variance
+
+    # 3. Verify threshold and jump candidate semantics
+    assert res.jump_threshold == 3.5
+    assert abs(res.standardized_residual) >= 3.5
+    assert res.jump_candidate is True
+    assert res.is_jump_candidate is True
+    assert res.decision == "DIFFUSION_MODEL_INCONSISTENCY"
+    assert res.reason_code == "STRUCTURAL_RESIDUAL_ALERT"
+
+    # 4. Within-threshold spread should NOT trip jump_candidate
+    res_within = ou.evaluate(spot_price=96.0, anchor_price=100.0, is_rwa=True)
+    assert abs(res_within.standardized_residual) < 3.5
+    assert res_within.jump_candidate is False
+    assert res_within.decision != "DIFFUSION_MODEL_INCONSISTENCY"
+
+
 # ==============================================================================
 # 5. PAGE CUSUM SEQUENTIAL DRIFT TESTS
 # ==============================================================================

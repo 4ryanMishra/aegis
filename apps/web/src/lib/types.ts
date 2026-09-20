@@ -96,6 +96,7 @@ export interface JSDMetrics {
 export interface OUMetrics {
   is_rwa: boolean;
   has_anchor: boolean;
+  is_applicable?: boolean;
   spot_price: number;
   anchor_price?: number | null;
   log_spread?: number | null;
@@ -105,7 +106,10 @@ export interface OUMetrics {
   dt?: number | null;
   expected_spread?: number | null;
   conditional_variance?: number | null;
+  conditional_std?: number | null;
   standardized_residual?: number | null;
+  jump_threshold?: number;
+  jump_candidate?: boolean;
   is_jump_candidate?: boolean;
   not_applicable_reason?: string | null;
 }
