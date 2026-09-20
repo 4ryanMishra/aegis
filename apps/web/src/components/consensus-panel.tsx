@@ -9,7 +9,8 @@ import {
   CheckCircle2, 
   Radio, 
   Scale,
-  ShieldAlert
+  ShieldAlert,
+  Layers
 } from 'lucide-react';
 
 interface ConsensusPanelProps {
@@ -25,7 +26,7 @@ export const ConsensusPanel: React.FC<ConsensusPanelProps> = ({
 }) => {
   const isHealthy = decision.state === 'HEALTHY_CONSENSUS' && consensus.has_strong_consensus;
   const hasOutliers = consensus.outlier_members.length > 0;
-  const noConsensus = decision.state === 'NO_CONSENSUS';
+  const noConsensus = decision.state === 'NO_CONSENSUS' || decision.state === 'ORACLE_INSTABILITY' || !consensus.has_strong_consensus;
   const multipliDev = decision.multipli_deviation_pct;
 
   return (
@@ -42,17 +43,17 @@ export const ConsensusPanel: React.FC<ConsensusPanelProps> = ({
           {noConsensus ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300">
               <ShieldAlert className="w-3 h-3 text-rose-600" />
-              NO CLUSTER CONSENSUS
+              NO DOMINANT CLUSTER
             </span>
           ) : hasOutliers ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
               <AlertTriangle className="w-3 h-3 text-amber-600" />
-              OUTLIER ISOLATED ({consensus.cluster_size}/{consensus.total_eligible} AGREE)
+              OUTLIER DETECTED ({consensus.cluster_size}/{consensus.total_eligible} AGREE)
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              STRONG CONSENSUS ({consensus.cluster_size}/{consensus.total_eligible} AGREE)
+              STRONG AGREEMENT ({consensus.cluster_size}/{consensus.total_eligible} AGREE)
             </span>
           )}
         </div>
@@ -67,28 +68,28 @@ export const ConsensusPanel: React.FC<ConsensusPanelProps> = ({
             <span className="text-blue-600 font-bold">MEDIAN</span>
           </div>
           <div className="font-mono font-bold text-base text-blue-900 mt-1 tnum">
-            {consensus.consensus_price !== null && consensus.consensus_price > 0
+            {consensus.has_strong_consensus && consensus.consensus_price !== null && consensus.consensus_price > 0
               ? `$${consensus.consensus_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
               : 'NO CONSENSUS'}
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-            {consensus.cluster_size} sources in cluster
+            {consensus.cluster_size} / {consensus.total_eligible} feeds agree
           </div>
         </div>
 
-        {/* Metric 2: Agreement Ratio */}
+        {/* Metric 2: Agreement Strength */}
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
           <div className="text-[10px] text-slate-500 uppercase font-mono flex items-center justify-between">
-            <span>Agreement Ratio</span>
+            <span>Agreement Strength</span>
             <Percent className="w-3 h-3 text-slate-400" />
           </div>
           <div className={`font-mono font-bold text-base mt-1 tnum ${
-            consensus.agreement_ratio >= 0.75 ? 'text-emerald-700' : consensus.agreement_ratio >= 0.5 ? 'text-amber-700' : 'text-rose-700'
+            consensus.has_strong_consensus ? 'text-emerald-700' : 'text-rose-700'
           }`}>
-            {(consensus.agreement_ratio * 100).toFixed(1)}%
+            {consensus.has_strong_consensus ? `${(consensus.agreement_ratio * 100).toFixed(1)}%` : '0.0%'}
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-            {consensus.cluster_size} of {consensus.total_eligible} eligible
+            {consensus.has_strong_consensus ? 'High (>= 60% Quorum)' : 'Insufficient Agreement'}
           </div>
         </div>
 
@@ -128,26 +129,26 @@ export const ConsensusPanel: React.FC<ConsensusPanelProps> = ({
       </div>
 
       {/* Cluster Details Footer */}
-      <div className="bg-slate-50 p-2.5 rounded border border-slate-200/80 text-[11px] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+      <div className="bg-slate-50 p-2.5 rounded border border-slate-200/80 text-[11px] space-y-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-slate-600 font-semibold">Cluster Members:</span>
+          <span className="text-slate-700 font-bold">Cluster A (Agreement Band &le; 0.5%):</span>
           {consensus.cluster_members.length > 0 ? (
             consensus.cluster_members.map((id) => (
-              <span key={id} className="font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px]">
+              <span key={id} className="font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 text-[10px] font-medium">
                 {id.replace(/_/g, ' ')}
               </span>
             ))
           ) : (
-            <span className="text-slate-400 font-mono">None</span>
+            <span className="text-slate-400 font-mono">No dominant cluster formed</span>
           )}
         </div>
 
         {consensus.outlier_members.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-rose-700 font-semibold">Outliers Excluded:</span>
+          <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-200/60">
+            <span className="text-amber-800 font-bold">Outliers (Outside Cluster):</span>
             {consensus.outlier_members.map((id) => (
-              <span key={id} className="font-mono px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 text-[10px]">
-                {id.replace(/_/g, ' ')}
+              <span key={id} className="font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-medium">
+                {id.replace(/_/g, ' ')} (Excluded from consensus median)
               </span>
             ))}
           </div>

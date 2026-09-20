@@ -52,58 +52,20 @@ def health_check():
 @app.get("/api/scenarios")
 def list_scenarios():
     """List all available deterministic cross-oracle test scenarios."""
-    return [
-        {
-            "scenario_id": "scen_normal",
-            "title": "Normal Market Convergence",
-            "description": "Multipli OSM and all external oracle feeds agree in tight consensus (~$4,320/oz). Standard 80% LTV.",
-            "category": "NORMAL",
-            "p_osm_initial": 4320.0,
-            "expected_market": 4320.0,
-            "asset": "Tokenized Gold (XAU/USD)",
-            "ltv_default": 0.80,
-        },
-        {
-            "scenario_id": "scen_flash_crash",
-            "title": "Multipli OSM Divergence / Market Drop (Hero Demo)",
-            "description": "External spot market falls to ~$4,050 while Multipli OSM remains delayed at $4,380. AEGIS detects divergence and restricts LTV.",
-            "category": "MULTIPLI_DEVIATION",
-            "p_osm_initial": 4380.0,
-            "expected_market": 4050.0,
-            "asset": "Tokenized Gold (XAU/USD)",
-            "ltv_default": 0.80,
-        },
-        {
-            "scenario_id": "scen_outlier",
-            "title": "Single Oracle Outlier Rejection",
-            "description": "A single oracle feed reports an anomalous $9,000 quote. Agreement clustering isolates the outlier and preserves consensus.",
-            "category": "OUTLIER",
-            "p_osm_initial": 4050.0,
-            "expected_market": 4050.0,
-            "asset": "Tokenized Gold (XAU/USD)",
-            "ltv_default": 0.80,
-        },
-        {
-            "scenario_id": "scen_disagreement",
-            "title": "Multi-Oracle Disagreement (Bimodal Split)",
-            "description": "External oracles split into two contradictory clusters ($4,050 vs $4,450). No consensus exists; emergency circuit breaker engages.",
-            "category": "DISAGREEMENT",
-            "p_osm_initial": 4300.0,
-            "expected_market": 4050.0,
-            "asset": "Tokenized Gold (XAU/USD)",
-            "ltv_default": 0.80,
-        },
-        {
-            "scenario_id": "scen_outage",
-            "title": "Source Outage & Staleness Resilience",
-            "description": "Two oracle feeds fail/stale out. The system gracefully continues on remaining active quorum (SOURCE_DEGRADED).",
-            "category": "OUTAGE",
-            "p_osm_initial": 4050.0,
-            "expected_market": 4050.0,
-            "asset": "Tokenized Gold (XAU/USD)",
-            "ltv_default": 0.80,
-        },
-    ]
+    scenarios = []
+    for s_id, fix in simulation_engine.fixtures.items():
+        scenarios.append({
+            "scenario_id": fix["scenario_id"],
+            "title": fix["title"],
+            "description": fix["description"],
+            "category": fix["scenario_type"],
+            "p_osm_initial": fix["base_price"],
+            "expected_market": fix["base_price"],
+            "asset": fix["asset"],
+            "ltv_default": fix.get("ltv_default", 0.80),
+            "timeline_markers": fix.get("timeline_markers", []),
+        })
+    return scenarios
 
 
 @app.get("/api/benchmarks/summary")

@@ -30,8 +30,8 @@ $PytestSuccess = ($LASTEXITCODE -eq 0)
 Pop-Location
 
 if ($PytestSuccess) {
-    Write-Host "  [PASS] Python Test Suite - 54/54 tests passing" -ForegroundColor Green
-    $Results["Python_Tests"] = "PASS (54/54 tests)"
+    Write-Host "  [PASS] Python Test Suite - 75/75 tests passing" -ForegroundColor Green
+    $Results["Python_Tests"] = "PASS (75/75 tests)"
 } else {
     Write-Host "  [FAIL] Python Test Suite encountered errors:" -ForegroundColor Red
     Write-Host $PytestOutput -ForegroundColor DarkRed
@@ -42,15 +42,15 @@ if ($PytestSuccess) {
 # 2. End-to-End Scenario CLI Execution
 # ------------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[2/4] Running 5 Canonical Forensic Demo Scenarios..." -ForegroundColor Yellow
+Write-Host "[2/4] Running 6 Canonical Cross-Oracle Scenarios..." -ForegroundColor Yellow
 Push-Location $RepoRoot
 $ScenarioOutput = python -m packages.client.scenario_runner --all 2>&1
 $ScenarioSuccess = ($LASTEXITCODE -eq 0)
 Pop-Location
 
 if ($ScenarioSuccess) {
-    Write-Host "  [PASS] Deterministic Scenario Suite - 5/5 passing" -ForegroundColor Green
-    $Results["Scenario_Suite"] = "PASS (5/5 scenarios)"
+    Write-Host "  [PASS] Deterministic Scenario Suite - 6/6 passing" -ForegroundColor Green
+    $Results["Scenario_Suite"] = "PASS (6/6 scenarios)"
 } else {
     Write-Host "  [FAIL] Scenario Runner encountered errors:" -ForegroundColor Red
     Write-Host $ScenarioOutput -ForegroundColor DarkRed

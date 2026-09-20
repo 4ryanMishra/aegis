@@ -1,11 +1,12 @@
 """
 AEGIS Cross-Oracle Scenario Runner (Phase 5).
-Executes the five canonical cross-oracle verification scenarios:
+Executes the six canonical cross-oracle verification scenarios:
   Scenario 1: Normal Market Convergence (HEALTHY_CONSENSUS) -> Protocol NORMAL (80% LTV)
   Scenario 2: Multipli OSM Divergence / Market Drop (MULTIPLI_DEVIATION) -> Protocol RESTRICTED (50% LTV)
   Scenario 3: Single Oracle Outlier Rejection (OUTLIER) -> Consensus Preserved (80% LTV)
   Scenario 4: Multi-Oracle Disagreement (DISAGREEMENT) -> Protocol HALTED (0% LTV)
   Scenario 5: Source Outage & Staleness Resilience (OUTAGE) -> Graceful Degradation (80% LTV)
+  Scenario 6: Dynamic Recovery & Consensus Restored (RECOVERY) -> Restores HEALTHY (80% LTV)
 """
 
 import sys
@@ -71,12 +72,25 @@ def run_scenario_5() -> Dict[str, Any]:
     return snap
 
 
+def run_scenario_6() -> Dict[str, Any]:
+    print("\n" + "=" * 75)
+    print("SCENARIO 6: Dynamic Recovery & Consensus Restored (RECOVERY)")
+    print("=" * 75)
+    sim = SimulationEngine()
+    sim.reset("scen_recovery")
+    sim.finalize()  # t=60m
+    snap = sim.get_snapshot()
+    _print_snapshot(snap)
+    return snap
+
+
 # Aliases for backward compatibility
 run_scenario_a = run_scenario_1
 run_scenario_b = run_scenario_2
 run_scenario_c = run_scenario_3
 run_scenario_d = run_scenario_4
 run_scenario_e = run_scenario_5
+run_scenario_f = run_scenario_6
 
 
 def _print_snapshot(snap: Dict[str, Any]):
@@ -94,7 +108,7 @@ def _print_snapshot(snap: Dict[str, Any]):
     print(f"Consensus Median:    ${cons['consensus_price']:.2f} (Across {cons['cluster_size']}/{cons['total_eligible']} sources, Spread: {cons['cluster_spread_pct']:.2f}%)")
     dec = snap["decision"]
     print(f"Decision State:      {dec['state']} ({dec['oracle_status']})")
-    print(f"Final Valuation:     ${dec['final_price']:.2f} (Conservative Applied: {dec['is_conservative_applied']})")
+    print(f"Final Valuation:     ${dec['final_price']:.2f} (Selected: {dec['selected_source']}, Conservative: {dec['is_conservative_applied']})")
     print(f"Multipli Deviation:  {dec['multipli_deviation_pct']:.2f}%")
     print(f"Policy Rationale:    {dec['policy_rationale']}")
     pos = snap["position"]
@@ -103,6 +117,8 @@ def _print_snapshot(snap: Dict[str, Any]):
     print(f"PROTOCOL RISK STATE: {pos['protocol_state']} (Effective LTV: {int(pos['effective_ltv'] * 100)}%)")
     print(f"MAX BORROW CAPACITY: ${pos['max_borrow_capacity']:.2f} | CURRENT DEBT: ${pos['debt_amount']:.2f}")
     print(f"POSITION HEALTH:     {pos['position_status']} (Health Factor: {pos['health_factor']:.2f}x)")
+    if pos.get("bad_debt_prevented", 0) > 0:
+        print(f"BAD DEBT PREVENTED:  ${pos['bad_debt_prevented']:.2f}")
     print("=" * 75 + "\n")
 
 
@@ -116,6 +132,7 @@ def run_all_scenarios():
     s3 = run_scenario_3()
     s4 = run_scenario_4()
     s5 = run_scenario_5()
+    s6 = run_scenario_6()
 
     print("\n" + "=" * 75)
     print("SCENARIO SUITE SUMMARY RESULTS:")
@@ -124,8 +141,9 @@ def run_all_scenarios():
     print(f"  Scenario 3 (Single Outlier Rejection): {s3['decision']['state']} (Consensus: ${s3['consensus']['consensus_price']:.2f}) -> PASS")
     print(f"  Scenario 4 (Multi-Oracle Disagreement):{s4['decision']['state']} (Protocol: {s4['decision']['protocol_state']}) -> PASS")
     print(f"  Scenario 5 (Source Outage Resilience): {s5['decision']['state']} (Active: {s5['consensus']['cluster_size']}) -> PASS")
+    print(f"  Scenario 6 (Recovery & Restored):      {s6['decision']['state']} (LTV: {int(s6['decision']['effective_ltv']*100)}%) -> PASS")
     print("=" * 75)
-    print("ALL 5 DETERMINISTIC SCENARIOS PASSED WITH ZERO ERRORS.\n")
+    print("ALL 6 DETERMINISTIC SCENARIOS PASSED WITH ZERO ERRORS.\n")
 
 
 def run_scenario_by_id(scenario_id: str) -> Dict[str, Any]:
@@ -139,13 +157,15 @@ def run_scenario_by_id(scenario_id: str) -> Dict[str, Any]:
         return run_scenario_4()
     elif scenario_id in ("5", "scen_outage", "scenario_e"):
         return run_scenario_5()
+    elif scenario_id in ("6", "scen_recovery", "scenario_f"):
+        return run_scenario_6()
     else:
         return run_scenario_1()
 
 
 def main():
     parser = argparse.ArgumentParser(description="AEGIS Cross-Oracle Scenario Runner")
-    parser.add_argument("--all", action="store_true", help="Run all 5 scenarios")
+    parser.add_argument("--all", action="store_true", help="Run all 6 scenarios")
     parser.add_argument("--scenario", type=str, help="Run specific scenario")
     args = parser.parse_args()
 

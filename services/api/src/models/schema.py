@@ -158,12 +158,25 @@ class ConsensusResult(BaseModel):
 DECAggregate = ConsensusResult
 
 
+class TimelineMarker(BaseModel):
+    time_seconds: int = Field(default=0)
+    time_formatted: str = Field(default="00:00")
+    title: str = Field(default="NORMAL")
+    description: str = Field(default="")
+    severity: str = Field(default="INFO")  # INFO, SUCCESS, WARNING, ALERT, CRITICAL
+
+
 class RiskDecisionResult(BaseModel):
     state: str = Field(default="HEALTHY_CONSENSUS")
     oracle_status: OracleStatus = Field(default=OracleStatus.HEALTHY_CONSENSUS)
     final_price: Optional[float] = Field(None, description="Authoritative protocol valuation")
+    selected_source: str = Field(default="MULTIPLI_OSM", description="MULTIPLI_OSM, CONSENSUS_MEDIAN, MARKET_REFERENCE, CONSERVATIVE_MIN, NONE")
+    consensus_price: Optional[float] = Field(None, description="Consensus median")
+    cluster_size: int = Field(default=0, description="Agreeing feeds count")
+    total_eligible: int = Field(default=0, description="Total eligible feeds count")
     multipli_deviation_pct: float = Field(default=0.0, description="|P_OSM - P_CONSENSUS| / P_CONSENSUS * 100")
     is_conservative_applied: bool = Field(default=False, description="True if min(P_OSM, P_CONSENSUS) was enforced")
+    market_reference_used: bool = Field(default=False, description="True if terminal market reference was used")
     policy_rationale: str = Field(default="", description="Audit explanation of decision")
     effective_ltv: float = Field(default=0.80)
     protocol_state: str = Field(default="NORMAL", description="NORMAL, RESTRICTED, HALTED")
@@ -173,7 +186,6 @@ class RiskDecisionResult(BaseModel):
     decision: str = "VERIFIED"
     policy: Union[DecisionPolicy, str] = "USE_OSM"
     dispute_status: Optional[str] = None
-    selected_source: str = "P_OSM"
     confidence: Optional[float] = 0.95
     reason_codes: List[str] = Field(default_factory=list)
     policy_version: str = "0.2.0"
@@ -186,16 +198,17 @@ class UserPositionState(BaseModel):
     user_address: str = Field(default="0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
     collateral_asset: str = Field(default="Tokenized Gold (XAU)")
     collateral_amount: float = Field(default=10.0, description="Deposited collateral (oz)")
-    collateral_value: float = Field(default=40500.0, description="Collateral value under authoritative price")
-    effective_oracle_price: float = Field(default=4050.0, description="Price used for valuation")
+    collateral_value: float = Field(default=43200.0, description="Collateral value under authoritative price")
+    effective_oracle_price: float = Field(default=4320.0, description="Price used for valuation")
     debt_amount: float = Field(default=28000.0, description="Borrowed RWAUSD debt")
-    current_ltv: float = Field(default=0.691, description="Debt / Collateral Value")
+    current_ltv: float = Field(default=0.648, description="Debt / Collateral Value")
     effective_ltv: float = Field(default=0.80, description="Max permitted LTV under active risk state")
-    max_borrow_capacity: float = Field(default=32400.0, description="Collateral Value * Effective LTV")
-    borrowing_headroom: float = Field(default=4400.0, description="Max Borrow - Current Debt")
-    health_factor: float = Field(default=1.16, description="Max Capacity / Current Debt")
+    max_borrow_capacity: float = Field(default=34560.0, description="Collateral Value * Effective LTV")
+    borrowing_headroom: float = Field(default=6560.0, description="Max Borrow - Current Debt")
+    health_factor: float = Field(default=1.23, description="Max Capacity / Current Debt")
     protocol_state: str = Field(default="NORMAL", description="NORMAL, RESTRICTED, HALTED")
-    position_status: str = Field(default="HEALTHY", description="HEALTHY, RESTRICTED, OVER_LIMIT, HALTED")
+    position_status: str = Field(default="HEALTHY", description="HEALTHY, RESTRICTED, OVER_LIMIT, AT_RISK, HALTED")
+    bad_debt_prevented: float = Field(default=0.0, description="Cumulative bad debt prevented ($)")
 
 
 class CausalChainTelemetry(BaseModel):
@@ -333,6 +346,8 @@ class SimulationSnapshot(BaseModel):
     time_series: List[TimeSeriesPoint] = Field(default_factory=list)
     events: List[SimulationEvent] = Field(default_factory=list)
     interpretation: str = ""
+    timeline_markers: List[TimelineMarker] = Field(default_factory=list)
+    bad_debt_prevented: float = 0.0
 
     # Backward-compat
     p_osm: OSMFeed = Field(default_factory=OSMFeed)
@@ -342,6 +357,18 @@ class SimulationSnapshot(BaseModel):
     collateral: CollateralImpact = Field(default_factory=CollateralImpact)
     validators: List[OracleObservation] = Field(default_factory=list)
     lane_telemetry: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ScenarioListItem(BaseModel):
+    scenario_id: str
+    title: str
+    description: str
+    asset: str
+    p_osm_initial: float = 4320.0
+    expected_market: float = 4320.0
+    category: str = "NORMAL"
+    ltv_default: float = 0.80
+    timeline_markers: List[TimelineMarker] = Field(default_factory=list)
 
 
 # Request Models

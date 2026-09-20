@@ -24,9 +24,11 @@ export const CausalChainPanel: React.FC<CausalChainPanelProps> = ({ snapshot }) 
   const multipli = snapshot.multipli_observation;
   const market = snapshot.market_observation;
 
-  const isHalted = dec.state === 'NO_CONSENSUS' || dec.protocol_state === 'HALTED';
+  const protocolState = dec.protocol_state || 'NORMAL';
+  const isHalted = protocolState === 'HALTED' || dec.state === 'ORACLE_INSTABILITY' || dec.state === 'NO_CONSENSUS';
   const isDeviation = dec.state === 'MULTIPLI_DEVIATION';
-  const isHealthy = dec.state === 'HEALTHY_CONSENSUS';
+  const isMarketCorroborated = dec.state === 'MARKET_CORROBORATED';
+  const hasStrongConsensus = consensus.has_strong_consensus;
 
   return (
     <div className="bg-surface border border-borderHairline rounded shadow-card p-4 space-y-3">
@@ -57,7 +59,7 @@ export const CausalChainPanel: React.FC<CausalChainPanelProps> = ({ snapshot }) 
               {snapshot.oracle_sources?.length || 6} Networks
             </div>
             <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-              Spot: ${market?.price?.toFixed(2) || '4050.00'}
+              Spot: ${market?.price ? market.price.toFixed(2) : '4320.00'}
             </div>
           </div>
           <div className="mt-2 pt-1 border-t border-slate-200 text-[10px] text-slate-600">
@@ -66,57 +68,65 @@ export const CausalChainPanel: React.FC<CausalChainPanelProps> = ({ snapshot }) 
         </div>
 
         {/* Step 2: Price-Band Clustering */}
-        <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline flex flex-col justify-between">
+        <div className={`p-2.5 rounded border flex flex-col justify-between ${
+          hasStrongConsensus ? 'bg-surfaceSubtle border-borderHairline' : 'bg-rose-50/40 border-rose-200'
+        }`}>
           <div>
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 uppercase">
               <span>2. Clustering</span>
               <GitMerge className="w-3 h-3 text-slate-400" />
             </div>
-            <div className="font-mono font-bold text-blue-700 mt-1">
-              ${consensus.consensus_price?.toFixed(2) || '--'}
+            <div className={`font-mono font-bold mt-1 ${hasStrongConsensus ? 'text-blue-700' : 'text-rose-700'}`}>
+              {hasStrongConsensus && consensus.consensus_price ? `$${consensus.consensus_price.toFixed(2)}` : 'No Consensus'}
             </div>
             <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-              {consensus.cluster_size}/{consensus.total_eligible} agree (&le;0.5%)
+              {hasStrongConsensus
+                ? `${consensus.cluster_size}/${consensus.total_eligible} agree (<=0.5%)`
+                : 'Bimodal Split (3 vs 3)'}
             </div>
           </div>
           <div className="mt-2 pt-1 border-t border-slate-200 text-[10px] text-slate-600">
-            Spread: {consensus.cluster_spread_pct.toFixed(2)}%
+            Spread: {hasStrongConsensus ? `${consensus.cluster_spread_pct.toFixed(2)}%` : 'Dispersed'}
           </div>
         </div>
 
         {/* Step 3: Multipli Deviation Cross-Check */}
-        <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline flex flex-col justify-between">
+        <div className={`p-2.5 rounded border flex flex-col justify-between ${
+          isHalted ? 'bg-rose-50/40 border-rose-200' : isDeviation ? 'bg-amber-50/40 border-amber-200' : 'bg-surfaceSubtle border-borderHairline'
+        }`}>
           <div>
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 uppercase">
               <span>3. OSM Check</span>
               <Scale className="w-3 h-3 text-slate-400" />
             </div>
             <div className={`font-mono font-bold mt-1 ${
-              dec.multipli_deviation_pct > 3.0 ? 'text-rose-700' : dec.multipli_deviation_pct > 0.5 ? 'text-amber-700' : 'text-emerald-700'
+              isHalted ? 'text-rose-700' : dec.multipli_deviation_pct > 0.5 ? 'text-amber-700' : 'text-emerald-700'
             }`}>
-              {dec.multipli_deviation_pct.toFixed(2)}% &Delta;
+              {isHalted ? 'DISLOCATED' : `${dec.multipli_deviation_pct.toFixed(2)}% Δ`}
             </div>
             <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-              OSM: ${multipli?.price?.toFixed(2) || '0.00'}
+              OSM: ${multipli?.price ? multipli.price.toFixed(2) : '0.00'}
             </div>
           </div>
           <div className="mt-2 pt-1 border-t border-slate-200 text-[10px] text-slate-600">
-            {dec.multipli_deviation_pct > 0.5 ? 'Threshold Exceeded' : 'In Agreement'}
+            {isHalted ? 'Unresolved Split' : isDeviation ? 'Deviation Alert' : 'In Agreement'}
           </div>
         </div>
 
         {/* Step 4: Decision & Valuation */}
-        <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline flex flex-col justify-between">
+        <div className={`p-2.5 rounded border flex flex-col justify-between ${
+          isHalted ? 'bg-rose-50/40 border-rose-200' : isDeviation ? 'bg-amber-50/40 border-amber-200' : 'bg-surfaceSubtle border-borderHairline'
+        }`}>
           <div>
             <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 uppercase">
               <span>4. Valuation</span>
               {isHalted ? <Lock className="w-3 h-3 text-rose-500" /> : <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
             </div>
-            <div className="font-mono font-bold text-slate-900 mt-1">
-              ${dec.final_price?.toFixed(2) || '--'}
+            <div className={`font-mono font-bold mt-1 ${isHalted ? 'text-rose-700' : 'text-slate-900'}`}>
+              {isHalted ? 'LOCKED (0.00)' : `$${dec.final_price?.toFixed(2) || '--'}`}
             </div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-              {dec.is_conservative_applied ? 'min(OSM, Cons)' : 'OSM Consensus'}
+            <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate" title={dec.selected_source}>
+              {isHalted ? 'Circuit Breaker' : isDeviation ? 'min(OSM, Cons)' : isMarketCorroborated ? 'Market Corroborated' : 'OSM Consensus'}
             </div>
           </div>
           <div className="mt-2 pt-1 border-t border-slate-200 text-[10px] font-bold text-slate-700">
@@ -137,6 +147,8 @@ export const CausalChainPanel: React.FC<CausalChainPanelProps> = ({ snapshot }) 
               <span>5. Vault Health</span>
               {pos?.position_status === 'HEALTHY' ? (
                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+              ) : isHalted ? (
+                <Lock className="w-3 h-3 text-rose-600" />
               ) : (
                 <AlertTriangle className="w-3 h-3 text-amber-600" />
               )}

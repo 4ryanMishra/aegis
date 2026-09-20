@@ -8,7 +8,15 @@ export type OracleStatus =
   | 'EVIDENCE_OF_ABNORMAL_DEVIATION'
   | 'DISPERSED_UNCERTAINTY'
   | 'HALTED_CIRCUIT_BREAKER'
-  | 'PENDING_FINALIZATION';
+  | 'PENDING_FINALIZATION'
+  | 'MULTIPLI_DEVIATION'
+  | 'OUTLIER_DETECTED'
+  | 'SOURCE_DEGRADED'
+  | 'NO_CONSENSUS'
+  | 'MARKET_CORROBORATED'
+  | 'ORACLE_INSTABILITY'
+  | 'CONSENSUS_RESTORED'
+  | string;
 
 export type DecisionState = 
   | 'HEALTHY_CONSENSUS'
@@ -195,22 +203,34 @@ export interface ConsensusResult {
 // Backward compatibility alias
 export type DECAggregate = ConsensusResult;
 
+export interface TimelineMarker {
+  time_seconds: number;
+  time_formatted: string;
+  title: string;
+  description: string;
+  severity: 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT' | 'CRITICAL' | string;
+}
+
 export interface RiskDecisionResult {
   state: string;
-  oracle_status: OracleStatus;
+  oracle_status: OracleStatus | string;
   final_price: number | null;
+  selected_source: string;
+  consensus_price?: number | null;
+  cluster_size?: number;
+  total_eligible?: number;
   multipli_deviation_pct: number;
   is_conservative_applied: boolean;
+  market_reference_used: boolean;
   policy_rationale: string;
   effective_ltv: number;
-  protocol_state: string;
+  protocol_state: 'NORMAL' | 'RESTRICTED' | 'HALTED' | string;
 
   // Backward compatibility properties
   policy?: DecisionPolicy | string;
   decision?: string;
   action?: string;
   dispute_status?: string;
-  selected_source?: string;
   confidence?: number | null;
   reason_codes?: string[];
   policy_version?: string;
@@ -242,7 +262,7 @@ export interface EvidenceRecord {
   d_osm_dec: number | null;
   validator_dispersion: number;
   agreement_ratio: number;
-  oracle_status: OracleStatus;
+  oracle_status: OracleStatus | string;
   anomaly_score: number;
   reason_codes: string[];
   lane_anomalies?: Record<string, boolean>;
@@ -281,8 +301,9 @@ export interface ScenarioListItem {
   asset: string;
   p_osm_initial: number;
   expected_market: number;
-  category: 'NORMAL' | 'FLASH_CRASH' | 'POISONED_VALIDATOR' | 'MARKET_DISLOCATION' | 'OSM_FAILURE' | string;
+  category: 'NORMAL' | 'FLASH_CRASH' | 'POISONED_VALIDATOR' | 'MARKET_DISLOCATION' | 'OSM_FAILURE' | 'RECOVERY' | string;
   ltv_default: number;
+  timeline_markers?: TimelineMarker[];
 }
 
 export interface SimulationEvent {
@@ -322,6 +343,7 @@ export interface UserPositionState {
   health_factor: number;
   protocol_state: 'NORMAL' | 'RESTRICTED' | 'HALTED' | string;
   position_status: 'HEALTHY' | 'RESTRICTED' | 'OVER_LIMIT' | 'AT_RISK' | 'HALTED' | string;
+  bad_debt_prevented?: number;
 }
 
 export interface CausalChainTelemetry {
@@ -360,6 +382,8 @@ export interface SimulationSnapshot {
   is_finalized: boolean;
   current_block: string;
   ltv?: number;
+  timeline_markers?: TimelineMarker[];
+  bad_debt_prevented?: number;
 
   // Cross-Oracle specific properties
   oracle_sources: OracleObservation[];

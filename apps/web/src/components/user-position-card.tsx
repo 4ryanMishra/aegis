@@ -11,7 +11,8 @@ import {
   DollarSign, 
   Wallet,
   Sparkles,
-  Info
+  Info,
+  Shield
 } from 'lucide-react';
 
 interface UserPositionCardProps {
@@ -30,16 +31,17 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
     user_address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
     collateral_asset: 'Tokenized Gold (XAU)',
     collateral_amount: 10.0,
-    collateral_value: 40500.0,
-    effective_oracle_price: snapshot.decision?.final_price ?? snapshot.consensus?.consensus_price ?? snapshot.multipli_observation?.price ?? 4050.0,
+    collateral_value: 43200.0,
+    effective_oracle_price: snapshot.decision?.final_price ?? snapshot.consensus?.consensus_price ?? snapshot.multipli_observation?.price ?? 4320.0,
     debt_amount: 28000.0,
-    current_ltv: 0.691,
+    current_ltv: 0.648,
     effective_ltv: 0.80,
-    max_borrow_capacity: 32400.0,
-    borrowing_headroom: 4400.0,
-    health_factor: 1.16,
+    max_borrow_capacity: 34560.0,
+    borrowing_headroom: 6560.0,
+    health_factor: 1.23,
     protocol_state: 'NORMAL',
     position_status: 'HEALTHY',
+    bad_debt_prevented: 0.0,
   };
 
   const [collateralInput, setCollateralInput] = useState<string>(pos.collateral_amount.toString());
@@ -89,6 +91,8 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
     }
   };
 
+  const badDebtPrevented = pos.bad_debt_prevented || snapshot.bad_debt_prevented || 0;
+
   const getStatusBadge = () => {
     switch (pos.position_status) {
       case 'HEALTHY':
@@ -128,7 +132,6 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
     }
   };
 
-  const healthPct = Math.min(100, Math.max(0, (pos.health_factor / 1.5) * 100));
   const ltvUsagePct = pos.effective_ltv > 0 ? (pos.current_ltv / pos.effective_ltv) * 100 : 100;
 
   return (
@@ -221,6 +224,21 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
         </div>
       </div>
 
+      {/* Bad Debt Prevention Banner (If active) */}
+      {badDebtPrevented > 0 && (
+        <div className="bg-emerald-50 border border-emerald-300 p-2.5 rounded text-xs text-emerald-900 flex items-center justify-between font-mono">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              <strong>AEGIS Solvency Protection Active:</strong> Prevented <strong>${badDebtPrevented.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> in unbacked borrow bad debt by overriding stale delayed OSM!
+            </span>
+          </div>
+          <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300 whitespace-nowrap">
+            100% SOLVENT
+          </span>
+        </div>
+      )}
+
       {/* LTV & Health Bars */}
       <div className="bg-slate-50 p-3 rounded border border-slate-200/80 space-y-2">
         <div className="flex items-center justify-between text-[11px] font-mono">
@@ -291,7 +309,7 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
               value={debtInput}
               onChange={(e) => setDebtInput(e.target.value)}
               className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="e.g. 700.0"
+              placeholder="e.g. 28000.0"
               disabled={isUpdating || pos.protocol_state === 'HALTED'}
             />
             <button
@@ -318,7 +336,7 @@ export const UserPositionCard: React.FC<UserPositionCardProps> = ({
       <div className="text-[11px] text-slate-500 bg-slate-50/70 p-2.5 rounded border border-slate-200/60 flex items-start gap-2">
         <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
         <span>
-          <strong>Why this matters:</strong> During market stress or stale oracle updates, AEGIS dynamically caps maximum borrowing capacity (e.g. restricting LTV from 80% to 50%) and substitutes resilient P_DEC consensus, preserving protocol solvency before bad debt can form.
+          <strong>Why this matters:</strong> During market stress or stale delayed oracle updates, AEGIS dynamically caps maximum borrowing capacity (e.g. restricting LTV from 80% to 50%) and substitutes resilient cross-oracle consensus, preserving protocol solvency before bad debt can form.
         </span>
       </div>
     </div>

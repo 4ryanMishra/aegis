@@ -19,6 +19,7 @@ import {
   updateSimulationPosition,
 } from '@/lib/api-client';
 import { TerminalHeader } from '@/components/terminal-header';
+import { SimulationTimeline } from '@/components/simulation-timeline';
 import { MainPriceComparison } from '@/components/main-price-comparison';
 import { CausalChainPanel } from '@/components/causal-chain-panel';
 import { OracleFeedMatrix } from '@/components/oracle-feed-matrix';
@@ -307,6 +308,15 @@ export default function OracleControlRoomPage() {
       {/* Main Control Room Layout */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto p-6 space-y-5">
         
+        {/* Visual Simulation Timeline & Accelerated Playhead */}
+        <SimulationTimeline
+          snapshot={snapshot}
+          onTogglePlay={handleTogglePlay}
+          onStep={handleStep}
+          onReset={handleReset}
+          onFinalize={handleFinalize}
+        />
+
         {/* Scenario Overview Banner */}
         <div className="bg-surface border border-borderHairline p-3.5 rounded flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
           <div>
