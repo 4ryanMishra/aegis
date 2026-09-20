@@ -9,6 +9,14 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 
+class MethodologyRole(str, Enum):
+    PRICE_ESTIMATOR = "PRICE_ESTIMATOR"
+    DIAGNOSTIC_ANOMALY_DETECTOR = "DIAGNOSTIC_ANOMALY_DETECTOR"
+    UNCERTAINTY_CONSENSUS_MEASURE = "UNCERTAINTY_CONSENSUS_MEASURE"
+    RWA_STRUCTURAL_CHECK = "RWA_STRUCTURAL_CHECK"
+    SEQUENTIAL_DRIFT_DETECTOR = "SEQUENTIAL_DRIFT_DETECTOR"
+
+
 class DataStatus(str, Enum):
     SIMULATED = "SIMULATED"
     OBSERVED = "OBSERVED"
@@ -79,11 +87,17 @@ class ValidatorResult(BaseModel):
     input_sources: List[str] = Field(default_factory=list, description="Feeds/sources consumed")
     input_values: Dict[str, Any] = Field(default_factory=dict, description="Input values summary")
 
-    estimated_price: float = Field(..., description="Estimated reference/forecast price")
-    uncertainty_lower: float = Field(..., description="Lower uncertainty bound")
-    uncertainty_upper: float = Field(..., description="Upper uncertainty bound")
+    role: MethodologyRole = Field(default=MethodologyRole.PRICE_ESTIMATOR, description="Functional role of the methodology")
+    is_price_estimator: bool = Field(default=True, description="Whether this methodology outputs an eligible price estimate for P_DEC")
+    estimated_price: Optional[float] = Field(default=None, description="Estimated reference/forecast price (None for diagnostic lanes)")
+    uncertainty_lower: Optional[float] = Field(default=None, description="Lower uncertainty bound (None for diagnostic lanes)")
+    uncertainty_upper: Optional[float] = Field(default=None, description="Upper uncertainty bound (None for diagnostic lanes)")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Methodology confidence / quality representation")
 
+    diagnostic_evidence: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Diagnostic evidence payload for Evidence Engine"
+    )
     intermediate_metrics: Dict[str, Any] = Field(
         default_factory=dict,
         description="Forensic intermediate metrics explaining how methodology reached conclusion"
@@ -121,15 +135,15 @@ class ValidatorResult(BaseModel):
         return self.methodology_version
 
     @property
-    def point_estimate(self) -> float:
+    def point_estimate(self) -> Optional[float]:
         return self.estimated_price
 
     @property
-    def lower_bound(self) -> float:
+    def lower_bound(self) -> Optional[float]:
         return self.uncertainty_lower
 
     @property
-    def upper_bound(self) -> float:
+    def upper_bound(self) -> Optional[float]:
         return self.uncertainty_upper
 
     @property

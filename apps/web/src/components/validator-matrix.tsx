@@ -17,7 +17,8 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
 
     if (meth.includes('KALMAN') || meth.includes('kalman')) {
       const d2 = m.mahalanobis_d2 ?? 0;
-      return `D² = ${d2.toFixed(2)} (χ²: 3.84)`;
+      const th = m.chi2_threshold ?? 6.635;
+      return `D² = ${d2.toFixed(2)} (χ²: ${th.toFixed(2)})`;
     } else if (meth.includes('HUBER') || meth.includes('huber')) {
       const outliers = m.outlier_count ?? 0;
       const s = m.scale_s ?? 0;
@@ -104,8 +105,19 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
                   onClick={() => onInspectValidator(v)}
                 >
                   <td className="py-2.5 px-3">
-                    <div className="font-mono font-bold text-slate-900">
-                      {v.lane_id.toUpperCase()}
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-slate-900">
+                        {String(v.lane_id).toUpperCase()}
+                      </span>
+                      {v.is_price_estimator ? (
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          PRICE
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                          DIAGNOSTIC
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] text-slate-400 font-mono">
                       {v.validator_id} &bull; {v.operator_id}
@@ -120,10 +132,20 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
                     </div>
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 tnum">
-                    ${v.estimated_price.toFixed(2)}
+                    {v.is_price_estimator && v.estimated_price !== null && v.estimated_price !== undefined ? (
+                      `$${v.estimated_price.toFixed(2)}`
+                    ) : (
+                      <span className="inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                        DIAGNOSTIC
+                      </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-center font-mono text-slate-500 text-[11px] tnum">
-                    [${v.uncertainty_lower.toFixed(2)} &ndash; ${v.uncertainty_upper.toFixed(2)}]
+                    {v.is_price_estimator && v.uncertainty_lower !== null && v.uncertainty_upper !== null && v.uncertainty_lower !== undefined && v.uncertainty_upper !== undefined ? (
+                      `[$${v.uncertainty_lower.toFixed(2)} – $${v.uncertainty_upper.toFixed(2)}]`
+                    ) : (
+                      <span className="text-slate-400 font-mono text-[10px]">—</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 font-mono text-[11px] text-slate-700">
                     <span className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">

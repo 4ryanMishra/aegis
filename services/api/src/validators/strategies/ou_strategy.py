@@ -4,7 +4,7 @@ Methodology Lane 4: Ornstein-Uhlenbeck RWA Residual Analysis.
 
 from typing import List, Dict, Any, Optional
 from ..base import ValidatorStrategy, ReferenceContext
-from ...models.schema import ValidatorResult, DataStatus
+from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
 from packages.quant.src.methodologies.ou import OrnsteinUhlenbeckAnalyzer
 
 
@@ -76,6 +76,17 @@ class OUStrategy(ValidatorStrategy):
             "jump_candidate": res.jump_candidate,
         }
 
+        diagnostic_evidence = {
+            "is_applicable": res.is_applicable,
+            "log_spread": res.log_spread,
+            "standardized_residual": res.standardized_residual,
+            "jump_candidate": res.jump_candidate,
+            "conditional_variance": res.conditional_variance,
+            "expected_spread": res.expected_spread,
+            "implied_price_hint": res.estimated_price,
+            "decision": res.decision,
+        }
+
         return ValidatorResult(
             validator_id=validator_id,
             methodology=self.methodology,
@@ -86,10 +97,13 @@ class OUStrategy(ValidatorStrategy):
             timestamp=context.window_start_ts + 1800,  # T+30m
             input_sources=self.default_source_ids,
             input_values={"spot": spot, "anchor": anchor, "is_rwa": is_rwa},
-            estimated_price=res.estimated_price,
-            uncertainty_lower=res.uncertainty_lower,
-            uncertainty_upper=res.uncertainty_upper,
+            role=MethodologyRole.RWA_STRUCTURAL_CHECK,
+            is_price_estimator=False,
+            estimated_price=None,
+            uncertainty_lower=None,
+            uncertainty_upper=None,
             confidence=0.90 if (res.is_applicable and not res.jump_candidate) else 0.50,
+            diagnostic_evidence=diagnostic_evidence,
             intermediate_metrics=intermediate,
             anomaly_score=res.anomaly_score,
             decision=res.decision,

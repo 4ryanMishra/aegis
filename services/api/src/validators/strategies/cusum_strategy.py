@@ -4,7 +4,7 @@ Methodology Lane 5: Page CUSUM Sequential Drift Detection.
 
 from typing import List, Dict, Any, Optional
 from ..base import ValidatorStrategy, ReferenceContext
-from ...models.schema import ValidatorResult, DataStatus
+from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
 from packages.quant.src.methodologies.cusum import PageCUSUM
 
 
@@ -83,6 +83,18 @@ class CUSUMStrategy(ValidatorStrategy):
             "history_series": [h.model_dump() for h in res.history_series],
         }
 
+        diagnostic_evidence = {
+            "trip_state": res.trip_state,
+            "direction": res.direction,
+            "s_plus": res.s_plus,
+            "s_minus": res.s_minus,
+            "threshold_h": res.threshold_h,
+            "kappa": res.kappa,
+            "current_increment": res.current_increment,
+            "latest_price_hint": res.estimated_price,
+            "decision": res.decision,
+        }
+
         return ValidatorResult(
             validator_id=validator_id,
             methodology=self.methodology,
@@ -93,10 +105,13 @@ class CUSUMStrategy(ValidatorStrategy):
             timestamp=context.window_start_ts + 2100,  # T+35m
             input_sources=self.default_source_ids,
             input_values={"sample_count": len(series), "latest_price": series[-1]},
-            estimated_price=res.estimated_price,
-            uncertainty_lower=res.uncertainty_lower,
-            uncertainty_upper=res.uncertainty_upper,
+            role=MethodologyRole.SEQUENTIAL_DRIFT_DETECTOR,
+            is_price_estimator=False,
+            estimated_price=None,
+            uncertainty_lower=None,
+            uncertainty_upper=None,
             confidence=0.95 if res.trip_state == "NORMAL" else 0.45,
+            diagnostic_evidence=diagnostic_evidence,
             intermediate_metrics=intermediate,
             anomaly_score=res.anomaly_score,
             decision=res.decision,

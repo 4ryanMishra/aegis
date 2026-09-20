@@ -221,7 +221,7 @@ export const DecisionPanel: React.FC<DecisionPanelProps> = ({ scenario }) => {
             <div>
               <strong className="text-slate-900">Capital Protection Active: </strong>
               Accepting stale/manipulated P_OSM (${scenario.p_osm.value.toFixed(2)}) would permit unbacked borrowing up to ${collateral.baseline_value?.toFixed(2)} per unit collateral. 
-              AEGIS verification restricts borrow power to ${collateral.aegis_value?.toFixed(2)}, preventing protocol insolvency and bad debt creation.
+              AEGIS verification restricts borrow power to ${collateral.aegis_value?.toFixed(2)}, preventing simulated collateral exposure overstatement under configured LTV.
             </div>
           ) : isHealthy ? (
             <div>

@@ -32,10 +32,14 @@ Protocol / Ledger
 
 ### Core Oracle Values
 - `P_OSM`: Delayed baseline oracle value exposed by the existing OSM after its scheduled delay buffer.
-- `P_DEC`: Aggregated evidence product deterministically computed from independent validator submissions across methodology lanes (uncertainty-weighted robust median blend):
+- `P_DEC`: Aggregated price reference product deterministically computed from eligible price-estimating validator lanes (uncertainty-weighted median blend of Lanes 1 & 2):
   $$\text{methodology computation} \longrightarrow \text{validator evidence} \longrightarrow \text{deterministic cross-validator aggregation} \longrightarrow P_{DEC}$$
+  *(Note: Lanes 1 & 2 serve as genuine price estimators; Lanes 3, 4, and 5 provide non-price diagnostic evidence directly to the Evidence Engine).*
 - `P_MARKET`: Independent terminal market observation attested at the close of the verification window ($T_1$).
 - `P_FINAL`: Single verified authoritative price exposed to the protocol through one stable price interface.
+
+> **Core Solvency Axiom:**
+> *"AEGIS protects against oracle inconsistency and manipulation; protocol solvency depends on liquidations, volatility, and protocol parameters."*
 
 ---
 
@@ -46,6 +50,12 @@ AEGIS organizes verification intelligence into:
 > **"Five methodology lanes, each capable of being operated by multiple independent validator nodes."**
 > 
 > *(Current MVP simulation: 1 simulated node per lane. The architecture explicitly decouples methodology mathematical specifications from validator operator keys and node infrastructure).*
+
+### Methodology Role Classification
+
+To preserve mathematical coherence, AEGIS explicitly differentiates between **Price Estimators** and **Diagnostic Evidence Lanes**:
+- **Price Estimators (Lanes 1 & 2):** Produce continuous numeric price forecasts and robust central tendencies. Only eligible price estimators contribute to $P_{DEC}$.
+- **Diagnostic Evidence Lanes (Lanes 3, 4, 5):** Produce distributional, structural, and sequential drift diagnostics (such as JSD divergence matrices, standardized RWA residuals, and cumulative drift accumulators). These are ingested directly by the Evidence Engine without artificial price coercion.
 
 ### Epistemic Foundation
 
@@ -58,6 +68,7 @@ AEGIS organizes verification intelligence into:
 ### Lane 1: Recursive 1D Kalman Filter + Mahalanobis Innovation Gating
 
 - **Target Failure Mode:** Transient flash spikes, single-block liquidity manipulation, and high-frequency oracle quote pollution.
+- **Methodology Role:** `PRICE_ESTIMATOR` (Outputs continuous price posterior $\hat{x}_{t|t}$ and innovation gating diagnostic).
 - **Methodology Name:** 1D Recursive State-Space Filter with Chi-Squared Innovation Gating.
 - **Mathematical Foundation:**
   - Prediction:
@@ -66,11 +77,12 @@ AEGIS organizes verification intelligence into:
     $$\nu_t = z_t - \hat{x}_{t|t-1}, \quad S_t = P_{t|t-1} + R$$
   - Mahalanobis Distance Squared:
     $$D^2 = \frac{\nu_t^2}{S_t}$$
-  - Innovation Gate ($\chi^2(1)$ critical threshold $\gamma = 3.841$ at $p=0.05$):
-    $$\text{If } D^2 > \gamma \implies \text{Reject observation } z_t, \text{ retain } \hat{x}_{t|t} = \hat{x}_{t|t-1}, P_{t|t} = P_{t|t-1}$$
-    $$\text{If } D^2 \le \gamma \implies K_t = \frac{P_{t|t-1}}{S_t}, \quad \hat{x}_{t|t} = \hat{x}_{t|t-1} + K_t \nu_t, \quad P_{t|t} = (1 - K_t) P_{t|t-1}$$
+  - Innovation Gate ($\chi^2(1, 0.99)$ critical threshold $\gamma = 6.635$ at significance $\alpha = 0.01$):
+    - *Rationale:* In volatile digital asset markets, legitimate price innovations frequently produce $D^2 \approx 4-5$. A conservative $\alpha=0.05$ threshold ($\chi^2 = 3.841$) results in excessive false rejections. A 99% confidence threshold ($\chi^2(1, 0.99) \approx 6.635$) allows genuine high-volatility moves to pass while decisively gating flash spikes ($D^2 \gg 10$).
+    $$\text{If } D^2 > 6.635 \implies \text{Gate observation } z_t \text{ (Decision: INNOVATION_GATED), retain } \hat{x}_{t|t} = \hat{x}_{t|t-1}, P_{t|t} = P_{t|t-1}$$
+    $$\text{If } D^2 \le 6.635 \implies K_t = \frac{P_{t|t-1}}{S_t}, \quad \hat{x}_{t|t} = \hat{x}_{t|t-1} + K_t \nu_t, \quad P_{t|t} = (1 - K_t) P_{t|t-1}$$
 - **Concrete Inputs:** Observation quote $z_t$, prior state estimate $\hat{x}_{t-1}$, prior covariance $P_{t-1}$, process noise variance $Q$, measurement noise variance $R$.
-- **Output Format:** Posterior price estimate $\hat{x}_{t|t}$, posterior covariance $P_{t|t}$, Mahalanobis distance $D^2$, gating decision (`OBSERVATION_ACCEPTED` vs `OBSERVATION_GATED`), reason code.
+- **Output Format:** Posterior price estimate $\hat{x}_{t|t}$, posterior covariance $P_{t|t}$, Mahalanobis distance $D^2$, $\alpha=0.01$, gating decision (`ACCEPTED` vs `INNOVATION_GATED`), reason code.
 - **Security Role:** Acts as an immediate mathematical firewall preventing flash spikes from contaminating downstream price filters.
 - **Known Failure Modes / Limitations:** Assumes Gaussian innovation statistics; slow to track genuine discontinuous regime changes unless process noise $Q$ adapts dynamically.
 
@@ -79,6 +91,7 @@ AEGIS organizes verification intelligence into:
 ### Lane 2: Huber M-Estimation via Iteratively Reweighted Least Squares (IRLS)
 
 - **Target Failure Mode:** Heavy-tailed distribution contamination, adversarial minority Sybil quotes, and unsynchronized multi-source outlier injection.
+- **Methodology Role:** `PRICE_ESTIMATOR` (Outputs robust location estimate $\hat{\mu}_{Huber}$ and downweights input outliers).
 - **Methodology Name:** Robust Location and Scale M-Estimation via IRLS ($k=1.345$).
 - **Mathematical Foundation:**
   - Initial location $\tilde{\mu}_0 = \text{median}(z_1, \dots, z_n)$
@@ -101,6 +114,7 @@ AEGIS organizes verification intelligence into:
 ### Lane 3: Pairwise Jensen-Shannon Divergence (JSD) Matrix Analysis
 
 - **Target Failure Mode:** Latent informational asymmetry, covert multi-validator collusion, and divergent uncertainty distributions.
+- **Methodology Role:** `UNCERTAINTY_CONSENSUS_MEASURE` (Diagnostic lane; outputs pairwise uncertainty divergence matrix directly to the Evidence Engine).
 - **Methodology Name:** Information-Theoretic Uncertainty Divergence on Discrete Probability Grids.
 - **Mathematical Foundation:**
   - For continuous or parametric uncertainty distributions $P_i, P_j$, construct a unified bounded support grid $[x_{min}, x_{max}]$ with $M=100$ bins.
@@ -113,7 +127,7 @@ AEGIS organizes verification intelligence into:
   - Information-theoretic consensus weight:
     $$w_i = \frac{\exp(-\gamma \bar{D}_{JS}(L_i))}{\sum_m \exp(-\gamma \bar{D}_{JS}(L_m))}$$
 - **Concrete Inputs:** Array of validator uncertainty distributions (each defined by estimate $\mu_i$ and bounds $[L_i, U_i]$).
-- **Output Format:** $5 \times 5$ pairwise JSD matrix, mean divergence per lane, consensus weights $w_i$, isolated divergent lanes list, global disagreement score.
+- **Output Format:** $5 \times 5$ pairwise JSD matrix, mean divergence per lane, consensus weights $w_i$, isolated divergent lanes list, global disagreement score. Does not output an eligible price estimate for $P_{DEC}$.
 - **Security Role:** Quantifies geometric disagreement across validator uncertainty profiles, isolating nodes whose distribution shape deviates even if their point estimates appear normal.
 - **Known Failure Modes / Limitations:** Sensitive to discretization bin count and boundary truncation; computationally more intensive than scalar distance metrics.
 
@@ -122,6 +136,7 @@ AEGIS organizes verification intelligence into:
 ### Lane 4: Ornstein-Uhlenbeck RWA Residual / Jump-Diffusion Analysis
 
 - **Target Failure Mode:** Real World Asset (RWA) secondary market depegs, redemption halts, and structural discount breakdowns.
+- **Methodology Role:** `RWA_STRUCTURAL_CHECK` (Diagnostic lane; outputs structural diffusion residuals and jump candidate flags directly to the Evidence Engine).
 - **Methodology Name:** Continuous-Time Mean-Reverting Spread Diffusion with Jump Residual Testing.
 - **Mathematical Foundation:**
   - If asset is not an anchored RWA, lane safely returns `NOT_APPLICABLE` with zero-divergence neutral telemetry.
@@ -137,7 +152,7 @@ AEGIS organizes verification intelligence into:
   - Jump candidate test:
     $$\text{If } |z_{OU}| \ge 3.5 \implies \text{Flag structural jump / depeg candidate}$$
 - **Concrete Inputs:** Secondary market spot price $P_{spot}$, primary redemption NAV/anchor price $P_{anchor}$, calibrated parameters $(\theta, \mu, \sigma, \Delta t)$, asset RWA flag.
-- **Output Format:** Log spread $S_t$, conditional expectation, conditional variance, standardized residual $z_{OU}$, jump candidate flag (`OU_JUMP_DIFFUSION_CANDIDATE` vs `OU_SPREAD_EQUILIBRIUM`), reason code.
+- **Output Format:** Log spread $S_t$, conditional expectation, conditional variance, standardized residual $z_{OU}$, jump candidate flag (`OU_JUMP_DIFFUSION_CANDIDATE` vs `DIFFUSION_CONSISTENT`), reason code. Does not output an eligible price estimate for $P_{DEC}$.
 - **Security Role:** Disentangles normal market discount/premium fluctuations from systemic depeg shocks, preventing protocol vaults from overvaluing impaired RWA collateral.
 - **Known Failure Modes / Limitations:** Requires an authoritative off-chain redemption anchor feed; parameter miscalibration ($\theta, \sigma$) can misdiagnose high legitimate volatility as a jump.
 
@@ -146,6 +161,7 @@ AEGIS organizes verification intelligence into:
 ### Lane 5: Page CUSUM Sequential Drift Detection Filter
 
 - **Target Failure Mode:** Slow, cumulative, insidious price manipulation (stealth poisoning) designed to evade point-in-time threshold checks.
+- **Methodology Role:** `SEQUENTIAL_DRIFT_DETECTOR` (Diagnostic lane; outputs sequential cumulative drift statistics directly to the Evidence Engine).
 - **Methodology Name:** Page Cumulative Sum (CUSUM) Sequential Quality Control Filter.
 - **Mathematical Foundation:**
   - Standardized increment relative to in-control baseline $(\mu_0, \sigma_0)$:
@@ -156,7 +172,7 @@ AEGIS organizes verification intelligence into:
   - Decision threshold $h = 4.0$:
     $$\text{If } S_t^+ \ge h \text{ or } S_t^- \ge h \implies \text{Emit persistent drift alert}$$
 - **Concrete Inputs:** Sequential price series $\{P_t\}$, in-control mean $\mu_0$, standard deviation $\sigma_0$, allowance parameter $\kappa$, decision threshold $h$.
-- **Output Format:** Accumulator values $S_t^+, S_t^-$, standardized increment $z_t$, sequential drift alarm status (`PERSISTENT_DRIFT_ALERT` vs `DRIFT_ABSENT_STABLE`), accumulator history trajectory, reason code.
+- **Output Format:** Accumulator values $S_t^+, S_t^-$, standardized increment $z_t$, sequential drift alarm status (`PERSISTENT_DRIFT_ALERT` vs `BASELINE_STATIONARY`), accumulator history trajectory, reason code. Does not output an eligible price estimate for $P_{DEC}$.
 - **Security Role:** Detects persistent micro-drifts ($+0.25\%$ per tick) that never breach single-tick deviation thresholds but cumulatively subvert protocol collateral solvency.
 - **Known Failure Modes / Limitations:** Requires stationary baseline calibration $(\mu_0, \sigma_0)$; in trending structural bull/bear markets, requires periodic baseline recentering to avoid false drift alarms.
 
@@ -166,19 +182,21 @@ AEGIS organizes verification intelligence into:
 
 The five methodology lanes feed directly into the Evidence Engine and Decision Engine:
 
-1. **Filtering:** Observations from individual lanes are screened for eligibility (quorum condition $N \ge 3$, valid bounds).
-2. **Robust Aggregation ($P_{DEC}$):** An uncertainty-weighted median blend aggregates eligible lane estimates, computing a normalized MAD dispersion metric.
-3. **Triangulation:** The Evidence Engine evaluates the three pairwise deviations:
-   - $d(OSM, Market) = \frac{|P_{OSM} - P_{MARKET}|}{P_{MARKET}}$
-   - $d(DEC, Market) = \frac{|P_{DEC} - P_{MARKET}|}{P_{MARKET}}$
-   - $d(OSM, DEC) = \frac{|P_{OSM} - P_{DEC}|}{P_{DEC}}$
-   correlated with lane anomaly flags (Kalman gated, Huber outliers, JSD divergent, OU jump, CUSUM drift).
+1. **Role Segregation & Eligibility Filtering:** Observations are separated into Price Estimators (Lanes 1 & 2) and Diagnostic Evidence (Lanes 3, 4, 5). Price estimators are screened for innovation gating and disqualification. If Lane 1 gates an anomalous flash spike, Lane 2 (Huber) provides the uncontaminated price estimate.
+2. **Robust Aggregation ($P_{DEC}$):** An uncertainty-weighted median blend aggregates eligible price estimators, computing a normalized MAD dispersion metric. Diagnostic lanes receive weight 0.0 in $P_{DEC}$ while their forensic diagnostics are preserved in `lane_results`.
+3. **Triangulation & Evidence Ingestion:** The Evidence Engine evaluates triangular deviations ($d(OSM, Market)$, $d(DEC, Market)$, $d(OSM, DEC)$) and ingests diagnostic evidence directly from all 5 lanes:
+   - Lane 1: Mahalanobis $D^2$, $\chi^2(1, 0.99)=6.635$, gating state
+   - Lane 2: Outlier count and downweighted quote list
+   - Lane 3: Pairwise JSD divergence matrix and informational disagreement
+   - Lane 4: Standardized RWA spread residual and jump candidate state
+   - Lane 5: Sequential drift accumulator states ($S_t^+, S_t^-$)
 4. **Deterministic Policy:** The Decision Engine executes deterministic protocol actions:
    - `VERIFIED`: Discrepancies within normal bounds; adopts $P_{OSM}$ at full collateral power.
    - `WARNING`: Minor non-critical divergence; adopts $P_{DEC}$ with informational warning.
    - `DISPUTED`: Conflicting signals without clear alignment; applies conservative haircut.
-   - `RESTRICTED`: Substantial divergence; restricts collateral valuation ceiling to prevent bad debt.
+   - `RESTRICTED`: Substantial divergence; restricts collateral valuation ceiling to prevent simulated collateral exposure overstatement under configured LTV.
    - `HALTED`: Extreme multi-sigma dislocation or quorum breakdown; invokes circuit breaker.
+
 
 ---
 

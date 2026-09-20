@@ -45,15 +45,19 @@ export interface KalmanMetrics {
   prior_covariance: number;
   observation: number;
   innovation: number;
-  innovation_variance: number;
+  innovation_covariance?: number;
+  innovation_variance?: number;
   kalman_gain: number;
   posterior_state: number;
   posterior_covariance: number;
   mahalanobis_d2: number;
   chi2_threshold: number;
-  gate_decision: string;
-  measurement_noise_r: number;
-  process_noise_q: number;
+  alpha?: number;
+  confidence_level?: number;
+  is_accepted?: boolean;
+  gate_decision?: string;
+  measurement_noise_r?: number;
+  process_noise_q?: number;
 }
 
 export interface HuberWeightRecord {
@@ -126,12 +130,15 @@ export interface ValidatorObservation {
   operator_id: string;
   methodology: string;
   methodology_name: string;
-  estimated_price: number;
-  uncertainty_lower: number;
-  uncertainty_upper: number;
+  role?: string;
+  is_price_estimator?: boolean;
+  estimated_price: number | null;
+  uncertainty_lower: number | null;
+  uncertainty_upper: number | null;
   anomaly_score: number;
   decision: string;
   reason_code: string;
+  diagnostic_evidence?: Record<string, any>;
   intermediate_metrics: Record<string, any>;
   status: DataStatus;
   
@@ -151,7 +158,8 @@ export interface DECAggregate {
   quorum_met: boolean;
   status: DataStatus;
   eligible_lane_ids?: string[];
-  lane_estimates?: Record<string, number>;
+  lane_estimates?: Record<string, number | null>;
+  lane_results?: Array<Record<string, any>>;
 }
 
 export interface MarketObservation {

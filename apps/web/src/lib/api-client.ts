@@ -26,7 +26,7 @@ export async function fetchScenarios(): Promise<ScenarioListItem[]> {
     {
       scenario_id: 'scen_flash_spike',
       title: 'Flash Spike Attack (Transient Upstream Anomaly)',
-      description: 'Single-block liquidity manipulation causes a sudden +12% price spike. Lane 1 (Kalman) Mahalanobis innovation gate triggers (D² > 3.841) and rejects the observation, while Lane 2 (Huber) attenuates the quote weight.',
+      description: 'Single-block liquidity manipulation causes a sudden +12% price spike. Lane 1 (Kalman) Mahalanobis innovation gate triggers (D² > 6.635, α=0.01) and rejects the observation, while Lane 2 (Huber) attenuates the quote weight.',
       asset: 'XAU/USD (Tokenized Gold)',
       category: 'FLASH_SPIKE',
       p_osm_initial: 106.50,
@@ -153,13 +153,15 @@ function generateLocalScenarioRecord(
       validator_id: 'val-sim-1',
       lane_id: 'lane-1',
       operator_id: 'operator-alpha',
+      role: 'PRICE_ESTIMATOR',
+      is_price_estimator: true,
       methodology: 'KALMAN_INNOVATION_GATE',
       methodology_name: 'Recursive 1D Kalman Filter + Mahalanobis Innovation Gating',
       estimated_price: +(pMktVal - 0.05).toFixed(2),
       uncertainty_lower: +(pMktVal - 0.40).toFixed(2),
       uncertainty_upper: +(pMktVal + 0.40).toFixed(2),
       anomaly_score: scenarioId === 'scen_flash_spike' ? 0.95 : 0.05,
-      decision: scenarioId === 'scen_flash_spike' ? 'OBSERVATION_GATED' : 'OBSERVATION_ACCEPTED',
+      decision: scenarioId === 'scen_flash_spike' ? 'INNOVATION_GATED' : 'OBSERVATION_ACCEPTED',
       reason_code: scenarioId === 'scen_flash_spike' ? 'MAHALANOBIS_GATE_TRIPPED' : 'INNOVATION_WITHIN_CHI2_BOUNDS',
       intermediate_metrics: {
         prior_state: 95.0,
@@ -171,10 +173,19 @@ function generateLocalScenarioRecord(
         posterior_state: +(pMktVal - 0.05).toFixed(2),
         posterior_covariance: 0.06,
         mahalanobis_d2: scenarioId === 'scen_flash_spike' ? 529.0 : 0.04,
-        chi2_threshold: 3.841,
-        gate_decision: scenarioId === 'scen_flash_spike' ? 'OBSERVATION_GATED' : 'OBSERVATION_ACCEPTED',
+        chi2_threshold: 6.635,
+        alpha: 0.01,
+        confidence_level: 0.99,
+        gate_decision: scenarioId === 'scen_flash_spike' ? 'INNOVATION_GATED' : 'OBSERVATION_ACCEPTED',
         measurement_noise_r: 0.10,
         process_noise_q: 0.05
+      },
+      diagnostic_evidence: {
+        is_accepted: scenarioId !== 'scen_flash_spike',
+        mahalanobis_d2: scenarioId === 'scen_flash_spike' ? 529.0 : 0.04,
+        chi2_threshold: 6.635,
+        alpha: 0.01,
+        confidence_level: 0.99,
       },
       status: 'SIMULATED' as const,
       strategy_id: 'strat-kalman-1d',
@@ -187,6 +198,8 @@ function generateLocalScenarioRecord(
       validator_id: 'val-sim-2',
       lane_id: 'lane-2',
       operator_id: 'operator-beta',
+      role: 'PRICE_ESTIMATOR',
+      is_price_estimator: true,
       methodology: 'HUBER_IRLS',
       methodology_name: 'Huber M-Estimation via Iteratively Reweighted Least Squares (IRLS)',
       estimated_price: scenarioId === 'scen_poisoned_validator' ? +(pMktVal * 1.20).toFixed(2) : +(pMktVal + 0.02).toFixed(2),
@@ -215,6 +228,11 @@ function generateLocalScenarioRecord(
         standard_error: 0.035,
         outlier_count: scenarioId === 'scen_poisoned_validator' ? 1 : 0
       },
+      diagnostic_evidence: {
+        outlier_count: scenarioId === 'scen_poisoned_validator' ? 1 : 0,
+        scale_s: 0.074,
+        converged: true,
+      },
       status: 'SIMULATED' as const,
       strategy_id: 'strat-huber-irls',
       strategy_name: 'Huber M-Estimation via IRLS',
@@ -226,11 +244,13 @@ function generateLocalScenarioRecord(
       validator_id: 'val-sim-3',
       lane_id: 'lane-3',
       operator_id: 'operator-gamma',
+      role: 'UNCERTAINTY_CONSENSUS_MEASURE',
+      is_price_estimator: false,
       methodology: 'JENSEN_SHANNON_DIVERGENCE',
       methodology_name: 'Pairwise Jensen-Shannon Divergence Matrix Analysis',
-      estimated_price: +(pMktVal - 0.02).toFixed(2),
-      uncertainty_lower: +(pMktVal - 0.50).toFixed(2),
-      uncertainty_upper: +(pMktVal + 0.50).toFixed(2),
+      estimated_price: null,
+      uncertainty_lower: null,
+      uncertainty_upper: null,
       anomaly_score: scenarioId === 'scen_poisoned_validator' ? 0.65 : 0.05,
       decision: scenarioId === 'scen_poisoned_validator' ? 'INFORMATIONAL_DISAGREEMENT' : 'INFORMATIONAL_CONSENSUS',
       reason_code: scenarioId === 'scen_poisoned_validator' ? 'LANE_OUTLIER_DIVERGENCE_DETECTED' : 'UNIFORM_CONSENSUS_ENTROPY',
@@ -261,6 +281,11 @@ function generateLocalScenarioRecord(
         grid_bins: 100,
         lane_ids: ['lane-1', 'lane-2', 'lane-3', 'lane-4', 'lane-5']
       },
+      diagnostic_evidence: {
+        informational_disagreement: scenarioId === 'scen_poisoned_validator' ? 0.32 : 0.015,
+        consensus_price_hint: +(pMktVal - 0.02).toFixed(2),
+        divergent_lanes: scenarioId === 'scen_poisoned_validator' ? ['lane-2'] : [],
+      },
       status: 'SIMULATED' as const,
       strategy_id: 'strat-jsd-divergence',
       strategy_name: 'Pairwise Jensen-Shannon Divergence Matrix Analysis',
@@ -272,11 +297,13 @@ function generateLocalScenarioRecord(
       validator_id: 'val-sim-4',
       lane_id: 'lane-4',
       operator_id: 'operator-delta',
+      role: 'RWA_STRUCTURAL_CHECK',
+      is_price_estimator: false,
       methodology: 'ORNSTEIN_UHLENBECK_RWA',
       methodology_name: 'Ornstein-Uhlenbeck RWA Residual / Jump-Diffusion Analysis',
-      estimated_price: scenarioId === 'scen_rwa_depeg' ? +(pMktVal).toFixed(2) : +(pMktVal + 0.04).toFixed(2),
-      uncertainty_lower: +(pMktVal - 0.60).toFixed(2),
-      uncertainty_upper: +(pMktVal + 0.60).toFixed(2),
+      estimated_price: null,
+      uncertainty_lower: null,
+      uncertainty_upper: null,
       anomaly_score: scenarioId === 'scen_rwa_depeg' ? 0.95 : 0.05,
       decision: scenarioId === 'scen_rwa_depeg' ? 'OU_JUMP_DIFFUSION_CANDIDATE' : 'OU_SPREAD_EQUILIBRIUM',
       reason_code: scenarioId === 'scen_rwa_depeg' ? 'EXTREME_STANDARDIZED_RESIDUAL' : 'STATIONARY_SPREAD_DIFFUSION',
@@ -296,6 +323,13 @@ function generateLocalScenarioRecord(
         is_jump_candidate: scenarioId === 'scen_rwa_depeg',
         not_applicable_reason: null
       },
+      diagnostic_evidence: {
+        is_applicable: isRwa,
+        spot_price: pMktVal,
+        anchor_price: anchorPrice,
+        standardized_residual: scenarioId === 'scen_rwa_depeg' ? -5.44 : -0.12,
+        jump_candidate: scenarioId === 'scen_rwa_depeg',
+      },
       status: 'SIMULATED' as const,
       strategy_id: 'strat-ou-rwa-jump',
       strategy_name: 'Ornstein-Uhlenbeck RWA Residual / Jump-Diffusion Analysis',
@@ -307,11 +341,13 @@ function generateLocalScenarioRecord(
       validator_id: 'val-sim-5',
       lane_id: 'lane-5',
       operator_id: 'operator-epsilon',
+      role: 'SEQUENTIAL_DRIFT_DETECTOR',
+      is_price_estimator: false,
       methodology: 'PAGE_CUSUM_DRIFT',
       methodology_name: 'Page CUSUM Sequential Drift Detection Filter',
-      estimated_price: +(pMktVal - 0.01).toFixed(2),
-      uncertainty_lower: +(pMktVal - 0.45).toFixed(2),
-      uncertainty_upper: +(pMktVal + 0.45).toFixed(2),
+      estimated_price: null,
+      uncertainty_lower: null,
+      uncertainty_upper: null,
       anomaly_score: scenarioId === 'scen_slow_drift' ? 0.85 : 0.05,
       decision: scenarioId === 'scen_slow_drift' ? 'PERSISTENT_DRIFT_ALERT' : 'DRIFT_ABSENT_STABLE',
       reason_code: scenarioId === 'scen_slow_drift' ? 'CUSUM_UPWARD_ACCUMULATOR_TRIPPED' : 'ACCUMULATOR_BELOW_DECISION_INTERVAL',
@@ -328,6 +364,11 @@ function generateLocalScenarioRecord(
         history_length: 24,
         recent_trajectory: [0.0, 0.2, 0.5, 1.1, 1.8, 2.4, 3.1, 3.9, scenarioId === 'scen_slow_drift' ? 4.82 : 0.0]
       },
+      diagnostic_evidence: {
+        s_pos: scenarioId === 'scen_slow_drift' ? 4.82 : 0.0,
+        threshold_h: 4.0,
+        drift_detected: scenarioId === 'scen_slow_drift',
+      },
       status: 'SIMULATED' as const,
       strategy_id: 'strat-cusum-drift',
       strategy_name: 'Page CUSUM Sequential Drift Detection Filter',
@@ -343,7 +384,10 @@ function generateLocalScenarioRecord(
     : allValidators;
 
   const visibleValidators = activeValidators.filter(v => v.observed_at <= startTs + stepSeconds);
-  const pDecVal = visibleValidators.length >= 3 ? +(pMktVal - 0.02).toFixed(2) : null;
+  const priceEstimators = visibleValidators.filter(v => v.is_price_estimator && v.estimated_price !== null && !v.decision.includes('GATED'));
+  const pDecVal = priceEstimators.length > 0 
+    ? +(priceEstimators.reduce((sum, v) => sum + (v.estimated_price || 0), 0) / priceEstimators.length).toFixed(2)
+    : (visibleValidators.length >= 2 ? +(pMktVal - 0.02).toFixed(2) : null);
 
   const dOsmMkt = isFinalized ? +(Math.abs(pOsmVal - pMktVal) / pMktVal).toFixed(4) : null;
   const dDecMkt = (isFinalized && pDecVal) ? +(Math.abs(pDecVal - pMktVal) / pMktVal).toFixed(4) : null;
@@ -383,7 +427,7 @@ function generateLocalScenarioRecord(
       dispersion: scenarioId === 'scen_validator_outage' ? 0.028 : 0.0065,
       quorum_met: visibleValidators.length >= 3,
       status: 'SIMULATED',
-      eligible_lane_ids: visibleValidators.map(v => v.lane_id),
+      eligible_lane_ids: visibleValidators.filter(v => v.is_price_estimator).map(v => v.lane_id),
       lane_estimates: Object.fromEntries(visibleValidators.map(v => [v.lane_id, v.estimated_price]))
     },
     p_market: {

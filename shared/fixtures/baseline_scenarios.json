@@ -29,7 +29,7 @@
     "scenario_id": "scen_gold_high_volatility_03",
     "scenario_type": "FLASH_SPIKE",
     "title": "Gold RWA — Intraday Flash Crash (Market Real-Move)",
-    "description": "Macro liquidity event. OSM enters window at $98.00. Rapid validator updates capture falling prices at $88.50. Market settles at $88.00. AEGIS detects genuine regime shift vs delayed oracle staleness, preventing bad debt from accepting outdated $98.00.",
+    "description": "Macro liquidity event. OSM enters window at $98.00. Rapid validator updates capture falling prices at $88.50. Market settles at $88.00. AEGIS detects genuine regime shift vs delayed oracle staleness, preventing simulated collateral exposure overstatement under configured LTV from accepting outdated $98.00.",
     "asset": "XAU/USD (Tokenized Gold)",
     "category": "HIGH_VOLATILITY",
     "p_osm_initial": 98.0,

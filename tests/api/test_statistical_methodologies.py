@@ -192,3 +192,116 @@ def test_cusum_positive_drift_trips():
     assert res.reason_code == "CUSUM_ACCUMULATOR_TRIPPED"
     assert res.direction == "POSITIVE_DRIFT"
     assert res.s_plus >= 3.0
+
+
+# ==============================================================================
+# 6. MATHEMATICAL AUDIT & ROLE CLASSIFICATION TESTS (PHASE 4A.1)
+# ==============================================================================
+
+def test_kalman_threshold_comparison_alpha_01_vs_05():
+    """
+    Verify that a moderate innovation (D^2 ~ 5.0) is accepted under chi2(1, 0.99) = 6.635 (alpha=0.01)
+    to prevent false alarms during volatile market conditions, but rejected under chi2(1, 0.95) = 3.841 (alpha=0.05).
+    """
+    # System: prior = 100.0, prior_cov = 1.0, q = 0.25, r = 1.0
+    # Innovation variance S = (1.0 + 0.25) + 1.0 = 2.25. sqrt(S) = 1.5.
+    # To get D^2 = 5.0: residual y = sqrt(5.0 * 2.25) = sqrt(11.25) ~ 3.3541
+    obs = 100.0 + math.sqrt(11.25)
+
+    # 99% confidence gate (alpha=0.01)
+    kf_99 = KalmanFilter1D(default_q=0.25, default_r=1.0, chi2_threshold=6.635, alpha=0.01)
+    res_99 = kf_99.step(observation=obs, prior_state=100.0, prior_covariance=1.0)
+    assert res_99.mahalanobis_d2 == pytest.approx(5.0, abs=1e-4)
+    assert res_99.is_accepted is True
+    assert res_99.decision == "ACCEPTED"
+    assert res_99.alpha == 0.01
+    assert res_99.confidence_level == 0.99
+
+    # 95% confidence gate (alpha=0.05)
+    kf_95 = KalmanFilter1D(default_q=0.25, default_r=1.0, chi2_threshold=3.841, alpha=0.05)
+    res_95 = kf_95.step(observation=obs, prior_state=100.0, prior_covariance=1.0)
+    assert res_95.mahalanobis_d2 == pytest.approx(5.0, abs=1e-4)
+    assert res_95.is_accepted is False
+    assert res_95.decision == "INNOVATION_GATED"
+    assert res_95.alpha == 0.05
+    assert res_95.confidence_level == 0.95
+
+
+def test_methodology_strategy_roles_and_diagnostic_separation():
+    """
+    Verify that all 5 validator strategy implementations correctly decouple
+    price estimation from diagnostic evidence evaluation:
+    - Lanes 1 & 2: Price Estimators (numeric estimated_price, is_price_estimator=True)
+    - Lanes 3, 4, 5: Diagnostic Evidence (estimated_price=None, is_price_estimator=False, rich diagnostic_evidence)
+    """
+    from services.api.src.validators.strategies.kalman_strategy import KalmanStrategy
+    from services.api.src.validators.strategies.huber_strategy import HuberStrategy
+    from services.api.src.validators.strategies.jsd_strategy import JSDStrategy
+    from services.api.src.validators.strategies.ou_strategy import OUStrategy
+    from services.api.src.validators.strategies.cusum_strategy import CUSUMStrategy
+    from services.api.src.validators.base import ReferenceContext
+    from services.api.src.models.schema import MethodologyRole
+
+    ctx = ReferenceContext(
+        asset="ETH/USD",
+        p_osm=100.0,
+        window_start_ts=1700000000,
+        current_ts=1700001800,
+        expected_market_hint=100.0,
+        anchor_price=100.0,
+        is_rwa=True,
+        scenario_type="NORMAL"
+    )
+
+    # Lane 1: Kalman
+    kalman_strat = KalmanStrategy()
+    r1 = kalman_strat.generate("val_1", ctx)
+    assert r1.role == MethodologyRole.PRICE_ESTIMATOR
+    assert r1.is_price_estimator is True
+    assert r1.estimated_price is not None
+    assert "mahalanobis_d2" in r1.diagnostic_evidence
+    assert r1.diagnostic_evidence["alpha"] == 0.01
+    assert r1.diagnostic_evidence["chi2_threshold"] == 6.635
+
+    # Lane 2: Huber
+    huber_strat = HuberStrategy()
+    r2 = huber_strat.generate("val_2", ctx)
+    assert r2.role == MethodologyRole.PRICE_ESTIMATOR
+    assert r2.is_price_estimator is True
+    assert r2.estimated_price is not None
+    assert "outlier_count" in r2.diagnostic_evidence
+
+    # Lane 3: JSD
+    jsd_strat = JSDStrategy()
+    r3 = jsd_strat.generate("val_3", ctx)
+    assert r3.role == MethodologyRole.UNCERTAINTY_CONSENSUS_MEASURE
+    assert r3.is_price_estimator is False
+    assert r3.estimated_price is None
+    assert r3.uncertainty_lower is None
+    assert r3.uncertainty_upper is None
+    assert "pairwise_jsd_matrix" in r3.diagnostic_evidence
+    assert "informational_disagreement" in r3.diagnostic_evidence
+
+    # Lane 4: OU Residual
+    ou_strat = OUStrategy()
+    r4 = ou_strat.generate("val_4", ctx)
+    assert r4.role == MethodologyRole.RWA_STRUCTURAL_CHECK
+    assert r4.is_price_estimator is False
+    assert r4.estimated_price is None
+    assert r4.uncertainty_lower is None
+    assert r4.uncertainty_upper is None
+    assert "jump_candidate" in r4.diagnostic_evidence
+    assert "standardized_residual" in r4.diagnostic_evidence
+
+    # Lane 5: Page CUSUM
+    cusum_strat = CUSUMStrategy()
+    r5 = cusum_strat.generate("val_5", ctx)
+    assert r5.role == MethodologyRole.SEQUENTIAL_DRIFT_DETECTOR
+    assert r5.is_price_estimator is False
+    assert r5.estimated_price is None
+    assert r5.uncertainty_lower is None
+    assert r5.uncertainty_upper is None
+    assert "trip_state" in r5.diagnostic_evidence
+    assert "s_plus" in r5.diagnostic_evidence
+    assert "s_minus" in r5.diagnostic_evidence
+

@@ -4,7 +4,7 @@ Methodology Lane 3: Pairwise Jensen-Shannon Divergence on Uncertainty Distributi
 
 from typing import List, Dict, Any
 from ..base import ValidatorStrategy, ReferenceContext
-from ...models.schema import ValidatorResult, DataStatus
+from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
 from packages.quant.src.methodologies.jsd import JensenShannonDivergence, JSDLaneInput
 
 
@@ -76,6 +76,17 @@ class JSDStrategy(ValidatorStrategy):
             "consensus_price": res.consensus_price,
         }
 
+        diagnostic_evidence = {
+            "informational_disagreement": res.informational_disagreement,
+            "mean_divergence_per_lane": res.mean_divergence_per_lane,
+            "pairwise_jsd_matrix": res.pairwise_jsd_matrix,
+            "lane_weights": res.lane_weights,
+            "consensus_price_hint": res.consensus_price,
+            "uncertainty_lower_hint": res.uncertainty_lower,
+            "uncertainty_upper_hint": res.uncertainty_upper,
+            "decision": res.decision,
+        }
+
         return ValidatorResult(
             validator_id=validator_id,
             methodology=self.methodology,
@@ -86,10 +97,13 @@ class JSDStrategy(ValidatorStrategy):
             timestamp=context.window_start_ts + 1500,  # T+25m
             input_sources=self.default_source_ids,
             input_values={"source_estimates": [p1, p2, p3]},
-            estimated_price=res.consensus_price,
-            uncertainty_lower=res.uncertainty_lower,
-            uncertainty_upper=res.uncertainty_upper,
+            role=MethodologyRole.UNCERTAINTY_CONSENSUS_MEASURE,
+            is_price_estimator=False,
+            estimated_price=None,
+            uncertainty_lower=None,
+            uncertainty_upper=None,
             confidence=max(0.2, 1.0 - min(0.8, res.informational_disagreement * 2.0)),
+            diagnostic_evidence=diagnostic_evidence,
             intermediate_metrics=intermediate,
             anomaly_score=res.anomaly_score,
             decision=res.decision,

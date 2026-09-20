@@ -5,7 +5,7 @@ Methodology Lane 1: Recursive 1D Kalman Filter + Mahalanobis Innovation Gating.
 from typing import List, Dict, Any, Optional
 import math
 from ..base import ValidatorStrategy, ReferenceContext
-from ...models.schema import ValidatorResult, DataStatus
+from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
 from packages.quant.src.methodologies.kalman import KalmanFilter1D
 
 
@@ -79,10 +79,23 @@ class KalmanStrategy(ValidatorStrategy):
             "innovation_covariance": res.innovation_covariance,
             "mahalanobis_d2": res.mahalanobis_d2,
             "chi2_threshold": res.chi2_threshold,
+            "alpha": res.alpha,
+            "confidence_level": res.confidence_level,
             "is_accepted": res.is_accepted,
             "kalman_gain": res.kalman_gain,
             "posterior_state": res.posterior_state,
             "posterior_covariance": res.posterior_covariance,
+        }
+
+        diagnostic_evidence = {
+            "is_accepted": res.is_accepted,
+            "mahalanobis_d2": res.mahalanobis_d2,
+            "chi2_threshold": res.chi2_threshold,
+            "alpha": res.alpha,
+            "confidence_level": res.confidence_level,
+            "innovation": res.innovation,
+            "innovation_covariance": res.innovation_covariance,
+            "decision": res.decision,
         }
 
         return ValidatorResult(
@@ -95,10 +108,13 @@ class KalmanStrategy(ValidatorStrategy):
             timestamp=context.window_start_ts + 900,  # T+15m
             input_sources=self.default_source_ids,
             input_values={"prior": prior_state, "observation": observation},
+            role=MethodologyRole.PRICE_ESTIMATOR,
+            is_price_estimator=True,
             estimated_price=res.posterior_state,
             uncertainty_lower=res.uncertainty_lower,
             uncertainty_upper=res.uncertainty_upper,
             confidence=0.95 if res.is_accepted else 0.40,
+            diagnostic_evidence=diagnostic_evidence,
             intermediate_metrics=intermediate,
             anomaly_score=res.anomaly_score,
             decision=res.decision,

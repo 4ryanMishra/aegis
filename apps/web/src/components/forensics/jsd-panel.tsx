@@ -127,18 +127,25 @@ export const JSDForensicPanel: React.FC<JSDPanelProps> = ({ validator }) => {
         </div>
       </div>
 
-      {/* Final Valuation Result */}
+      {/* Informational Consensus Diagnostic Result */}
       <div className="p-3 bg-white rounded border border-slate-200 flex items-center justify-between">
         <div>
-          <div className="text-[10px] uppercase font-mono text-slate-500">Information-Consensus Valuation</div>
-          <div className="text-xl font-mono font-bold text-slate-900 tnum">
-            ${validator.estimated_price.toFixed(2)}
+          <div className="text-[10px] uppercase font-mono text-slate-500">Diagnostic Role: Uncertainty Consensus Measure</div>
+          <div className="text-sm font-mono font-bold text-slate-900 mt-0.5 tnum">
+            {metrics.informational_disagreement != null
+              ? `Disagreement: ${(metrics.informational_disagreement).toFixed(4)}`
+              : 'Divergence Metric'}
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+            Lane 3 does not output a spot price to P_DEC; feeds Evidence Engine directly.
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase font-mono text-slate-500">95% Uncertainty Confidence Band</div>
+          <div className="text-[10px] uppercase font-mono text-slate-500">Implied Consensus Reference</div>
           <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-            [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+            {validator.diagnostic_evidence?.consensus_price_hint !== undefined && validator.diagnostic_evidence?.consensus_price_hint !== null
+              ? `$${Number(validator.diagnostic_evidence.consensus_price_hint).toFixed(2)}`
+              : (validator.estimated_price !== null && validator.estimated_price !== undefined ? `$${Number(validator.estimated_price).toFixed(2)}` : 'Diagnostic Signal')}
           </div>
         </div>
       </div>
@@ -149,7 +156,7 @@ export const JSDForensicPanel: React.FC<JSDPanelProps> = ({ validator }) => {
           <Info className="w-3 h-3 text-slate-500" />
           Lane 3 Security Role & Mathematical Bound:
         </div>
-        Evaluates the geometric probability overlap between all methodology uncertainty distributions. Even if an adversarial node crafts a plausible point quote, divergence in distribution shape trips D_JS and attenuates its consensus weight w_i = exp(-γ · D̄_JS).
+        Evaluates the geometric probability overlap between all methodology uncertainty distributions on a discrete probability grid. Rather than coercing an arbitrary price point into P_DEC, Lane 3 acts as an uncertainty consensus measure feeding the Evidence Engine to penalize anomalous distribution divergence.
       </div>
     </div>
   );

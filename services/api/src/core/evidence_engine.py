@@ -71,37 +71,46 @@ class EvidenceEngine:
         for v in validators:
             methodology_statuses[v.methodology] = v.decision
 
+            diag = getattr(v, "diagnostic_evidence", {}) or v.intermediate_metrics
+
             if v.methodology == "KALMAN_1D" and v.decision == "INNOVATION_GATED":
                 kalman_gated = True
                 reason_codes.append("KALMAN_MAHALANOBIS_GATED_INNOVATION")
 
-            elif v.methodology == "HUBER_IRLS" and v.intermediate_metrics.get("outlier_count", 0) > 0:
-                reason_codes.append(f"HUBER_DOWNWEIGHTED_{v.intermediate_metrics['outlier_count']}_OUTLIERS")
+            elif v.methodology == "HUBER_IRLS" and diag.get("outlier_count", 0) > 0:
+                reason_codes.append(f"HUBER_DOWNWEIGHTED_{diag['outlier_count']}_OUTLIERS")
 
             elif v.methodology == "JSD" and v.decision == "INFORMATIONAL_DIVERGENCE_DETECTED":
                 reason_codes.append("JSD_INFORMATIONAL_DISAGREEMENT_HIGH")
 
             elif v.methodology == "OU_RESIDUAL":
-                if v.intermediate_metrics.get("jump_candidate", False):
+                if diag.get("jump_candidate", False):
                     ou_structural_state = "JUMP_CANDIDATE"
                     reason_codes.append("OU_STRUCTURAL_RESIDUAL_ALERT")
                 elif v.decision == "NOT_APPLICABLE":
                     ou_structural_state = "NOT_APPLICABLE"
 
             elif v.methodology == "CUSUM":
-                cusum_state = v.intermediate_metrics.get("trip_state", "NORMAL")
+                cusum_state = diag.get("trip_state", "NORMAL")
                 if cusum_state == "TRIP":
                     reason_codes.append("CUSUM_SEQUENTIAL_DRIFT_TRIPPED")
                 elif cusum_state == "DRIFT":
                     reason_codes.append("CUSUM_PERSISTENT_DRIFT_ACCUMULATING")
 
-        # 4. Validator Agreement Ratio (fraction within 2.5% of P_DEC)
+        # 4. Validator Agreement Ratio (calculated on price estimators only)
+        price_validators = [
+            v for v in validators
+            if getattr(v, "is_price_estimator", True) and v.estimated_price is not None
+        ]
         tolerance = 0.025
-        agreeing = sum(
-            1 for v in validators
-            if abs(v.estimated_price - dec_val) / max(abs(dec_val), 1e-6) <= tolerance
-        )
-        agreement_ratio = agreeing / max(len(validators), 1)
+        if price_validators:
+            agreeing = sum(
+                1 for v in price_validators
+                if abs(v.estimated_price - dec_val) / max(abs(dec_val), 1e-6) <= tolerance
+            )
+            agreement_ratio = agreeing / len(price_validators)
+        else:
+            agreement_ratio = 1.0
 
         # 5. Triangular conflict and anomaly classification
         conflict_detected = False

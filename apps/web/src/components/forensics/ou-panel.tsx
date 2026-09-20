@@ -29,15 +29,18 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
 
         <div className="p-3 bg-white rounded border border-slate-200 flex items-center justify-between">
           <div>
-            <div className="text-[10px] uppercase font-mono text-slate-500">Neutral Spot Valuation</div>
-            <div className="text-xl font-mono font-bold text-slate-900 tnum">
-              ${validator.estimated_price.toFixed(2)}
+            <div className="text-[10px] uppercase font-mono text-slate-500">Diagnostic Role: Structural RWA Check</div>
+            <div className="text-sm font-mono font-bold text-slate-900 mt-0.5 tnum">
+              STATUS: NOT APPLICABLE
+            </div>
+            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+              Lane 4 only evaluates assets with verifiable redemption anchors.
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] uppercase font-mono text-slate-500">Uncertainty Confidence Band</div>
+            <div className="text-[10px] uppercase font-mono text-slate-500">Secondary Spot Reference</div>
             <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-              [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+              ${(metrics.spot_price ?? 0).toFixed(2)}
             </div>
           </div>
         </div>
@@ -83,7 +86,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
           <div className="p-2 bg-white rounded border border-borderHairline">
             <div className="text-[10px] text-slate-500 font-mono">Secondary Spot Price</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-              ${(metrics.spot_price ?? validator.estimated_price).toFixed(2)}
+              ${(metrics.spot_price ?? (validator.estimated_price ?? 0)).toFixed(2)}
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
@@ -134,18 +137,23 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
         </div>
       </div>
 
-      {/* Valuation Output */}
+      {/* Valuation / Diagnostic Output */}
       <div className="p-3 bg-white rounded border border-slate-200 flex items-center justify-between">
         <div>
-          <div className="text-[10px] uppercase font-mono text-slate-500">RWA Market Valuation</div>
-          <div className="text-xl font-mono font-bold text-slate-900 tnum">
-            ${validator.estimated_price.toFixed(2)}
+          <div className="text-[10px] uppercase font-mono text-slate-500">Diagnostic Role: Structural RWA Spread Check</div>
+          <div className="text-sm font-mono font-bold text-slate-900 mt-0.5 tnum">
+            {metrics.standardized_residual != null
+              ? `z_OU = ${(metrics.standardized_residual).toFixed(2)} σ`
+              : 'Residual Analysis'}
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+            Lane 4 does not output a spot price to P_DEC; feeds Evidence Engine directly.
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase font-mono text-slate-500">95% Uncertainty Confidence Band</div>
+          <div className="text-[10px] uppercase font-mono text-slate-500">Secondary Spot vs Par Anchor</div>
           <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-            [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+            ${(metrics.spot_price ?? 0).toFixed(2)} / ${(metrics.anchor_price ?? 100).toFixed(2)}
           </div>
         </div>
       </div>
@@ -156,7 +164,7 @@ export const OUForensicPanel: React.FC<OUPanelProps> = ({ validator }) => {
           <Info className="w-3 h-3 text-slate-500" />
           Lane 4 Security Role & Mathematical Bound:
         </div>
-        Models the secondary market discount relative to physical redemption anchor via continuous-time Ornstein-Uhlenbeck mean reversion. If the standardized residual exceeds |z| ≥ 3.5, it signifies a non-Gaussian jump (structural depeg or liquidity collapse) rather than stationary arbitrage noise.
+        Models the secondary market spread relative to physical redemption anchor via continuous-time Ornstein-Uhlenbeck mean reversion. If the standardized residual exceeds |z| ≥ 3.5, it flags a structural residual alert / jump candidate to trigger protective collateral actions in the Decision Engine.
       </div>
     </div>
   );

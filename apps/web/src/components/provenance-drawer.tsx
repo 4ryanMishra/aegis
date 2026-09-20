@@ -82,11 +82,24 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
     title = `${selectedValidator.methodology_name}`;
     statusBadge = selectedValidator.status;
     details = [
-      { label: 'Lane ID', value: selectedValidator.lane_id.toUpperCase(), isMono: true },
+      { label: 'Lane ID', value: String(selectedValidator.lane_id).toUpperCase(), isMono: true },
+      { label: 'Functional Role', value: selectedValidator.is_price_estimator ? 'Price Estimator (P_DEC eligible)' : 'Diagnostic Evidence', isMono: false },
       { label: 'Simulated Validator Node', value: selectedValidator.validator_id, isMono: true },
       { label: 'Simulated Operator', value: selectedValidator.operator_id, isMono: true },
-      { label: 'Price Estimate', value: `$${selectedValidator.estimated_price.toFixed(2)}`, isMono: true },
-      { label: '95% Uncertainty Band', value: `[ $${selectedValidator.uncertainty_lower.toFixed(2)} - $${selectedValidator.uncertainty_upper.toFixed(2)} ]`, isMono: true },
+      { 
+        label: 'Price Estimate', 
+        value: selectedValidator.estimated_price !== null && selectedValidator.estimated_price !== undefined
+          ? `$${selectedValidator.estimated_price.toFixed(2)}`
+          : 'None (Diagnostic Lane)', 
+        isMono: true 
+      },
+      { 
+        label: '95% Uncertainty Band', 
+        value: selectedValidator.uncertainty_lower !== null && selectedValidator.uncertainty_upper !== null && selectedValidator.uncertainty_lower !== undefined && selectedValidator.uncertainty_upper !== undefined
+          ? `[ $${selectedValidator.uncertainty_lower.toFixed(2)} - $${selectedValidator.uncertainty_upper.toFixed(2)} ]`
+          : 'None (Diagnostic Lane)', 
+        isMono: true 
+      },
       { label: 'Methodology Key', value: selectedValidator.methodology, isMono: true },
       { label: 'Decision Flag', value: selectedValidator.decision, isMono: true },
       { label: 'Reason Code', value: selectedValidator.reason_code, isMono: true },

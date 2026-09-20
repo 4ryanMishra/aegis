@@ -152,18 +152,21 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
         </div>
       </div>
 
-      {/* Valuation Output */}
+      {/* Diagnostic Sequential Drift Output */}
       <div className="p-3 bg-white rounded border border-slate-200 flex items-center justify-between">
         <div>
-          <div className="text-[10px] uppercase font-mono text-slate-500">Sequential State Valuation</div>
-          <div className="text-xl font-mono font-bold text-slate-900 tnum">
-            ${validator.estimated_price.toFixed(2)}
+          <div className="text-[10px] uppercase font-mono text-slate-500">Diagnostic Role: Sequential Drift Detector</div>
+          <div className="text-sm font-mono font-bold text-slate-900 mt-0.5 tnum">
+            {`S⁺ = ${(metrics.s_pos ?? 0.0).toFixed(2)} (Threshold h = ${thresholdH.toFixed(1)})`}
+          </div>
+          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+            Lane 5 does not output a spot price to P_DEC; feeds Evidence Engine directly.
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase font-mono text-slate-500">95% Uncertainty Confidence Band</div>
+          <div className="text-[10px] uppercase font-mono text-slate-500">Monitoring Regime</div>
           <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-            [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+            {isDrift ? 'ACCUMULATOR TRIPPED' : 'STATIONARY NOISE'}
           </div>
         </div>
       </div>
@@ -174,7 +177,7 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
           <Info className="w-3 h-3 text-slate-500" />
           Lane 5 Security Role & Mathematical Bound:
         </div>
-        Detects persistent small-magnitude price drift (stealth poisoning). Single-tick deviation filters miss insidious +0.2% tick creeping, but Page CUSUM accumulates standardized residuals over time: S⁺ = max(0, S⁺_{'{t-1}'} + z_t - κ), triggering an early alarm when persistent bias crosses h=4.0.
+        Detects persistent small-magnitude price drift (stealth manipulation). Single-tick deviation filters miss insidious +0.2% tick creeping, but Page CUSUM accumulates standardized residuals over time: S⁺ = max(0, S⁺_{'{t-1}'} + z_t - κ), triggering an early alarm when persistent bias crosses h=4.0.
       </div>
     </div>
   );

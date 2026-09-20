@@ -22,6 +22,8 @@ class KalmanResult(BaseModel):
     innovation_covariance: float
     mahalanobis_d2: float
     chi2_threshold: float
+    alpha: float = Field(default=0.01, description="Significance level of the innovation test (e.g. 0.01 for 99% confidence)")
+    confidence_level: float = Field(default=0.99, description="Confidence level (1 - alpha)")
     is_accepted: bool
     decision: str
     reason_code: str
@@ -37,17 +39,21 @@ class KalmanFilter1D:
     """
     Deterministic 1D Recursive Kalman Filter with Mahalanobis Innovation Gating.
     Tracks scalar price state x_k with Gaussian innovation gating.
+    Uses chi2(1, 0.99) = 6.635 by default (significance alpha = 0.01).
     """
 
     def __init__(
         self,
         default_q: float = 0.25,
         default_r: float = 1.0,
-        chi2_threshold: float = 6.635,  # chi2(1) at p=0.01 (99% confidence)
+        chi2_threshold: float = 6.635,  # chi2(1) at alpha=0.01 (99% confidence)
+        alpha: float = 0.01,
     ):
         self.default_q = default_q
         self.default_r = default_r
         self.chi2_threshold = chi2_threshold
+        self.alpha = alpha
+        self.confidence_level = 1.0 - alpha
 
     def step(
         self,
@@ -117,6 +123,8 @@ class KalmanFilter1D:
             innovation_covariance=round(s, 6),
             mahalanobis_d2=round(d2, 4),
             chi2_threshold=round(self.chi2_threshold, 4),
+            alpha=self.alpha,
+            confidence_level=self.confidence_level,
             is_accepted=is_accepted,
             decision=decision,
             reason_code=reason_code,

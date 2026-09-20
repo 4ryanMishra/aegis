@@ -4,7 +4,7 @@ Methodology Lane 2: Huber M-Estimation via IRLS.
 
 from typing import List, Dict, Any
 from ..base import ValidatorStrategy, ReferenceContext
-from ...models.schema import ValidatorResult, DataStatus
+from ...models.schema import ValidatorResult, DataStatus, MethodologyRole
 from packages.quant.src.methodologies.huber import HuberMEstimator
 
 
@@ -80,6 +80,15 @@ class HuberStrategy(ValidatorStrategy):
             "outlier_count": res.outlier_count,
         }
 
+        diagnostic_evidence = {
+            "outlier_count": res.outlier_count,
+            "robust_dispersion": res.robust_dispersion,
+            "scale_s": res.scale_s,
+            "converged": res.converged,
+            "iterations": res.iterations,
+            "decision": res.decision,
+        }
+
         return ValidatorResult(
             validator_id=validator_id,
             methodology=self.methodology,
@@ -90,10 +99,13 @@ class HuberStrategy(ValidatorStrategy):
             timestamp=context.window_start_ts + 1200,  # T+20m
             input_sources=self.default_source_ids,
             input_values={"venue_quotes": quotes},
+            role=MethodologyRole.PRICE_ESTIMATOR,
+            is_price_estimator=True,
             estimated_price=res.final_estimate,
             uncertainty_lower=res.uncertainty_lower,
             uncertainty_upper=res.uncertainty_upper,
             confidence=0.92 if res.outlier_count <= 1 else 0.70,
+            diagnostic_evidence=diagnostic_evidence,
             intermediate_metrics=intermediate,
             anomaly_score=res.anomaly_score,
             decision=res.decision,

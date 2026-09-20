@@ -41,7 +41,7 @@ export const HuberForensicPanel: React.FC<HuberPanelProps> = ({ validator }) => 
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
           <div className="text-[10px] text-slate-500 font-mono">Sample Median μ̃₀</div>
           <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-            ${(metrics.initial_median ?? validator.estimated_price).toFixed(2)}
+            ${(metrics.initial_median ?? (validator.estimated_price ?? 0)).toFixed(2)}
           </div>
         </div>
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
@@ -135,13 +135,15 @@ export const HuberForensicPanel: React.FC<HuberPanelProps> = ({ validator }) => 
         <div>
           <div className="text-[10px] uppercase font-mono text-slate-500">Huber Robust Location Estimate</div>
           <div className="text-xl font-mono font-bold text-slate-900 tnum">
-            ${validator.estimated_price.toFixed(2)}
+            {validator.estimated_price !== null && validator.estimated_price !== undefined ? `$${validator.estimated_price.toFixed(2)}` : '--'}
           </div>
         </div>
         <div className="text-right">
           <div className="text-[10px] uppercase font-mono text-slate-500">95% Asymptotic Confidence Band</div>
           <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-            [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+            {validator.uncertainty_lower !== null && validator.uncertainty_upper !== null && validator.uncertainty_lower !== undefined && validator.uncertainty_upper !== undefined
+              ? `[$${validator.uncertainty_lower.toFixed(2)} – $${validator.uncertainty_upper.toFixed(2)}]`
+              : '--'}
           </div>
         </div>
       </div>

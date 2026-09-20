@@ -8,7 +8,7 @@ interface KalmanPanelProps {
 
 export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) => {
   const metrics = (validator.intermediate_metrics || {}) as Partial<KalmanMetrics>;
-  const isGated = validator.decision === 'OBSERVATION_GATED' || (metrics.mahalanobis_d2 || 0) > (metrics.chi2_threshold || 3.841);
+  const isGated = validator.decision === 'OBSERVATION_GATED' || validator.decision === 'INNOVATION_GATED' || (metrics.mahalanobis_d2 || 0) > (metrics.chi2_threshold || 6.635);
 
   return (
     <div className="space-y-4 text-xs">
@@ -58,7 +58,7 @@ export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) =
           <div className="p-2 bg-white rounded border border-borderHairline">
             <div className="text-[10px] text-slate-500 font-mono">Measurement z(t)</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-              ${(metrics.observation ?? validator.estimated_price).toFixed(2)}
+              ${(metrics.observation ?? (validator.estimated_price ?? metrics.prior_state ?? 0)).toFixed(2)}
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
@@ -73,7 +73,7 @@ export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) =
           <div className="p-2 bg-white rounded border border-borderHairline">
             <div className="text-[10px] text-slate-500 font-mono">Innovation Var S(t)</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-              {(metrics.innovation_variance ?? 0).toFixed(4)}
+              {((metrics.innovation_variance ?? metrics.innovation_covariance) ?? 0).toFixed(4)}
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
@@ -83,9 +83,9 @@ export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) =
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
-            <div className="text-[10px] text-slate-500 font-mono">χ²(1) Threshold (95%)</div>
+            <div className="text-[10px] text-slate-500 font-mono">χ²(1, 0.99) Gate (α={metrics.alpha ?? 0.01})</div>
             <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-              {(metrics.chi2_threshold ?? 3.841).toFixed(3)}
+              {(metrics.chi2_threshold ?? 6.635).toFixed(3)}
             </div>
           </div>
           <div className="p-2 bg-white rounded border border-borderHairline">
@@ -102,13 +102,15 @@ export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) =
         <div>
           <div className="text-[10px] uppercase font-mono text-slate-500">Posterior State Estimate</div>
           <div className="text-xl font-mono font-bold text-slate-900 tnum">
-            ${validator.estimated_price.toFixed(2)}
+            {validator.estimated_price !== null && validator.estimated_price !== undefined ? `$${validator.estimated_price.toFixed(2)}` : '--'}
           </div>
         </div>
         <div className="text-right">
           <div className="text-[10px] uppercase font-mono text-slate-500">95% Uncertainty Confidence Band</div>
           <div className="text-xs font-mono font-semibold text-slate-700 tnum">
-            [${validator.uncertainty_lower.toFixed(2)} &ndash; ${validator.uncertainty_upper.toFixed(2)}]
+            {validator.uncertainty_lower !== null && validator.uncertainty_upper !== null && validator.uncertainty_lower !== undefined && validator.uncertainty_upper !== undefined
+              ? `[$${validator.uncertainty_lower.toFixed(2)} – $${validator.uncertainty_upper.toFixed(2)}]`
+              : '--'}
           </div>
         </div>
       </div>
@@ -119,7 +121,7 @@ export const KalmanForensicPanel: React.FC<KalmanPanelProps> = ({ validator }) =
           <Info className="w-3 h-3 text-slate-500" />
           Lane 1 Security Role:
         </div>
-        Rejects single-tick flash spikes before they corrupt downstream state. When Mahalanobis distance D² = ν²/S exceeds the χ²(1) critical threshold (3.841), the filter retains the prior estimate x̂(t|t-1) rather than absorbing the anomalous shock.
+        Rejects single-tick flash spikes before they corrupt downstream state. When Mahalanobis distance D² = ν²/S exceeds the χ²(1, 0.99) critical threshold ({(metrics.chi2_threshold ?? 6.635).toFixed(3)} at α={metrics.alpha ?? 0.01}), the filter gates the observation to prevent anomalous contamination.
       </div>
     </div>
   );
