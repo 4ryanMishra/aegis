@@ -43,7 +43,9 @@ export default function RiskTerminalPage() {
     init();
   }, []);
 
-  // Run simulation when scenario, LTV, or step changes
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+
+  // Run simulation when scenario, LTV, step, or manual trigger changes
   useEffect(() => {
     async function loadData() {
       if (!selectedScenarioId) return;
@@ -60,18 +62,24 @@ export default function RiskTerminalPage() {
       }
     }
     loadData();
-  }, [selectedScenarioId, ltv, stepSeconds]);
+  }, [selectedScenarioId, ltv, stepSeconds, refreshTrigger]);
 
   const handleReset = () => {
     setStepSeconds(0);
+    setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleStep = () => {
-    setStepSeconds((prev) => Math.min(3600, prev + 900)); // +15 min
+    setStepSeconds((prev) => {
+      const next = Math.min(3600, prev + 900);
+      return next === prev && prev < 3600 ? prev + 900 : (prev >= 3600 ? 900 : next);
+    });
+    setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleFinalize = () => {
     setStepSeconds(3600); // 60 min
+    setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleInspect = (target: string | ValidatorObservation) => {

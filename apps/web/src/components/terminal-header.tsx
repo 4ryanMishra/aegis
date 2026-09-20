@@ -105,14 +105,14 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
               className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded border border-borderHairline transition text-xs flex items-center gap-1 font-medium"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>T0</span>
+              <span>T0 (Reset)</span>
             </button>
 
             <button
               onClick={onStep}
-              disabled={isLoading || isFinalized}
+              disabled={isLoading}
               title="Advance verification window by +15 minutes"
-              className="px-2.5 py-1.5 text-slate-700 bg-white hover:bg-slate-50 rounded border border-borderHairline transition text-xs flex items-center gap-1 font-medium disabled:opacity-50"
+              className="px-2.5 py-1.5 text-slate-700 bg-white hover:bg-slate-50 rounded border border-borderHairline transition text-xs flex items-center gap-1 font-medium"
             >
               <FastForward className="w-3.5 h-3.5 text-blue-600" />
               <span>+15m Step</span>
@@ -120,12 +120,12 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
 
             <button
               onClick={onFinalize}
-              disabled={isLoading || isFinalized}
+              disabled={isLoading}
               title="Run complete 60-minute verification window and observe market"
-              className="px-3 py-1.5 text-white bg-slate-900 hover:bg-slate-800 rounded transition text-xs flex items-center gap-1.5 font-medium shadow-subtle disabled:opacity-50"
+              className="px-3 py-1.5 text-white bg-slate-900 hover:bg-slate-800 rounded transition text-xs flex items-center gap-1.5 font-medium shadow-subtle"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Finalize Window (1hr)</span>
+              <span>{isFinalized ? 'Re-Finalize (1hr)' : 'Finalize Window (1hr)'}</span>
             </button>
 
           </div>
