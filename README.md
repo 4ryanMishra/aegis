@@ -205,9 +205,27 @@ The five methodology lanes feed directly into the Evidence Engine and Decision E
 
 ---
 
-## Solidity On-Chain Verification Layer (Phase 4B)
+## Solidity On-Chain Verification Layer (Phase 4B & 4B.1)
 
 The AEGIS on-chain verification layer provides a battle-hardened, EVM-native implementation of the canonical verification pipeline in Solidity (`^0.8.24`), fully tested via Foundry and compliant with OpenZeppelin Contracts v5.0.
+
+### Trust Model & Security Hardening (Phase 4B.1)
+
+1. **Operator Identity vs. Wallet Address Separation:**
+   - Every registered validator is bound to an immutable organizational `operatorId` (`bytes32`).
+   - Quorum evaluation strictly counts distinct `operatorId`s, preventing multi-wallet Sybil attacks from single entities.
+   - At most one submission per `(roundId, laneId, operatorId)` is admitted to Tier 1 within-lane aggregation.
+2. **Snapshot-Bound Commit-Reveal:**
+   - `operatorId` and `laneId` are snapshotted in `CommitmentRecord` at commit time.
+   - Reveal strictly enforces that current validator status, `operatorId`, and `laneId` have not mutated mid-round.
+   - Cryptographic commitment payload binds `(operatorId, laneId, price, uncertaintyValue, uncertaintyType, isGated, diagPayload, evidenceHash)`.
+3. **Explicit Uncertainty Type Semantics:**
+   - Enforces typed uncertainty via `UncertaintyType` (`CI95_HALF_WIDTH`, `ABSOLUTE_STD`, `EMPIRICAL_DISPERSION`, `SOURCE_CONFIDENCE`, `OTHER_UNSUPPORTED`).
+   - For `CI95_HALF_WIDTH`, exact Gaussian conversion $\sigma = (\text{uncertaintyValue} \times 100) / 196$ ($\sigma = \text{halfWidth} / 1.96$) is computed.
+   - Unsupported variants or mixed uncertainty semantics within a single lane are deterministically rejected.
+4. **MarketAttestor Market Observer Trust Boundary:**
+   - EIP-712 typed data signatures prove attestor identity, non-repudiation, and payload integrity.
+   - Market attestations are classified as external **Market Observers** (not infallible ground truth) and are triangulated against $P_{OSM}$ and $P_{DEC}$ by the Evidence and Decision Engines.
 
 ### Contract Inventory (`contracts/src/`)
 
@@ -216,17 +234,17 @@ The AEGIS on-chain verification layer provides a battle-hardened, EVM-native imp
 | [`IAEGISPriceFeed.sol`](file:///d:/Projects/aegis/contracts/src/interfaces/IAEGISPriceFeed.sol) | Interface | Canonical, unopinionated protocol price interface: `getPrice(bytes32 assetId) -> (price, status, timestamp)`. |
 | [`IOSM.sol`](file:///d:/Projects/aegis/contracts/src/interfaces/IOSM.sol) | Interface | Minimal read-only delayed OSM baseline inspection: `readPrice() -> (price, hasPrice)`. |
 | [`FixedPointMath.sol`](file:///d:/Projects/aegis/contracts/src/libraries/FixedPointMath.sol) | Library | Internal 18-decimal WAD arithmetic, BPS conversion, and relative deviation. |
-| [`AggregatorLib.sol`](file:///d:/Projects/aegis/contracts/src/libraries/AggregatorLib.sol) | Library | Two-Tier Hierarchical Aggregation: Tier 1 within-lane robust median & conservative dispersion heuristic; Tier 2 inverse-variance cross-lane synthesis. |
-| [`ValidatorRegistry.sol`](file:///d:/Projects/aegis/contracts/src/ValidatorRegistry.sol) | Core | Validator node authorization, lane assignment (1-5), and role classification (`PRICE_ESTIMATOR` vs `DIAGNOSTIC`). |
-| [`MarketAttestor.sol`](file:///d:/Projects/aegis/contracts/src/MarketAttestor.sol) | Core | EIP-712 typed data signing, timestamp lower/upper freshness verification, and replay protection for $P_{MARKET}$. |
+| [`AggregatorLib.sol`](file:///d:/Projects/aegis/contracts/src/libraries/AggregatorLib.sol) | Library | Two-Tier Hierarchical Aggregation: Tier 1 within-lane robust median & conservative dispersion heuristic with exact CI95 conversion; Tier 2 inverse-variance cross-lane synthesis. |
+| [`ValidatorRegistry.sol`](file:///d:/Projects/aegis/contracts/src/ValidatorRegistry.sol) | Core | Validator node authorization, organizational `operatorId` binding, lane assignment (1-5), and role classification (`PRICE_ESTIMATOR` vs `DIAGNOSTIC`). |
+| [`MarketAttestor.sol`](file:///d:/Projects/aegis/contracts/src/MarketAttestor.sol) | Core | EIP-712 typed data signing, timestamp lower/upper freshness verification, and replay protection for $P_{MARKET}$ with documented Market Observer trust boundaries. |
 | [`AEGISEvidenceEngine.sol`](file:///d:/Projects/aegis/contracts/src/AEGISEvidenceEngine.sol) | Core | On-chain triangular deviation evaluation ($d(OSM, MKT), d(DEC, MKT), d(OSM, DEC)$) and compact anomaly bitmask compilation. |
 | [`AEGISDecisionEngine.sol`](file:///d:/Projects/aegis/contracts/src/AEGISDecisionEngine.sol) | Core | Deterministic safety policy matrix: maps triangular evidence and diagnostic flags to $P_{FINAL}$, `OracleStatus`, and `ActionCode`. |
 | [`AEGISPriceRouter.sol`](file:///d:/Projects/aegis/contracts/src/AEGISPriceRouter.sol) | Core | Single authoritative price store implementing `IAEGISPriceFeed` with per-asset staleness bounds. |
-| [`AEGISVerificationManager.sol`](file:///d:/Projects/aegis/contracts/src/AEGISVerificationManager.sol) | Core | Round coordinator state machine, commit-reveal management, 3D applicability-aware quorum, and keeper atomic finalization. |
+| [`AEGISVerificationManager.sol`](file:///d:/Projects/aegis/contracts/src/AEGISVerificationManager.sol) | Core | Round coordinator state machine, commit-reveal management, 3D distinct-operator quorum, and keeper atomic finalization. |
 
 ### Measured Gas Benchmarks (`forge test --gas-report`)
 
-Measured execution costs under `solc = "0.8.24"` with 200 optimizer runs:
+Measured execution costs under `solc = "0.8.24"` (`via_ir = true`) with 200 optimizer runs:
 
 | Operation | Function | 5 Validators | 10 Validators | Median Gas |
 | :--- | :--- | :--- | :--- | :--- |
@@ -244,7 +262,7 @@ Measured execution costs under `solc = "0.8.24"` with 200 optimizer runs:
 AEGIS maintains comprehensive automated test suites covering Solidity smart contracts, Python statistical methodologies, and Next.js institutional web dashboards:
 
 ```bash
-# 1. Run all Solidity smart contract tests (54/54 passing)
+# 1. Run all Solidity smart contract tests (71/71 passing including 17 adversarial security scenarios)
 cd contracts
 forge test -vvv
 

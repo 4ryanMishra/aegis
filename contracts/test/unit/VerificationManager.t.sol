@@ -11,6 +11,7 @@ import {
     LANE_5_CUSUM
 } from "../../src/AEGISVerificationManager.sol";
 import {ValidatorRegistry} from "../../src/ValidatorRegistry.sol";
+import {AggregatorLib} from "../../src/libraries/AggregatorLib.sol";
 import {MarketAttestor} from "../../src/MarketAttestor.sol";
 import {AEGISEvidenceEngine} from "../../src/AEGISEvidenceEngine.sol";
 import {AEGISDecisionEngine} from "../../src/AEGISDecisionEngine.sol";
@@ -31,7 +32,13 @@ contract VerificationManagerTest is Test {
     uint256 attestorPk = 0xA11CE;
     address attestor;
 
-    // 5 Validator Nodes
+    // 5 Validator Nodes with distinct operator identities
+    bytes32 constant OP_ID_1 = keccak256("OP_ORG_1");
+    bytes32 constant OP_ID_2 = keccak256("OP_ORG_2");
+    bytes32 constant OP_ID_3 = keccak256("OP_ORG_3");
+    bytes32 constant OP_ID_4 = keccak256("OP_ORG_4");
+    bytes32 constant OP_ID_5 = keccak256("OP_ORG_5");
+
     uint256 op1Pk = 0x101; address op1; // Lane 1 Kalman
     uint256 op2Pk = 0x102; address op2; // Lane 2 Huber
     uint256 op3Pk = 0x103; address op3; // Lane 3 JSD
@@ -76,11 +83,11 @@ contract VerificationManagerTest is Test {
         marketAttestor.setAttestorAuthorization(attestor, true);
 
         // Register 5 operators for 5 methodology lanes
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
-        registry.registerValidator(op2, LANE_2_HUBER, keccak256("H1"));
-        registry.registerValidator(op3, LANE_3_JSD, keccak256("J1"));
-        registry.registerValidator(op4, LANE_4_OU, keccak256("O1"));
-        registry.registerValidator(op5, LANE_5_CUSUM, keccak256("C1"));
+        registry.registerValidator(OP_ID_1, op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(OP_ID_2, op2, LANE_2_HUBER, keccak256("H1"));
+        registry.registerValidator(OP_ID_3, op3, LANE_3_JSD, keccak256("J1"));
+        registry.registerValidator(OP_ID_4, op4, LANE_4_OU, keccak256("O1"));
+        registry.registerValidator(OP_ID_5, op5, LANE_5_CUSUM, keccak256("C1"));
 
         mockOsm = new MockOSM(2500 * WAD);
         vm.stopPrank();
@@ -107,42 +114,53 @@ contract VerificationManagerTest is Test {
     function _commitAndReveal(
         uint256 rId,
         address op,
+        bytes32 opId,
         uint8 laneId,
         uint256 price,
-        uint256 uLow,
-        uint256 uHigh,
+        uint256 uVal,
+        AggregatorLib.UncertaintyType uType,
         bool isGated,
         AEGISVerificationManager.DiagnosticPayload memory diag,
         uint256 nonce
     ) internal {
         bytes32 evHash = keccak256(abi.encode(op, laneId));
         bytes32 payloadHash = keccak256(
-            abi.encode(laneId, price, uLow, uHigh, isGated, diag, evHash)
+            abi.encode(opId, laneId, price, uVal, uType, isGated, diag, evHash)
         );
         bytes32 commitHash = keccak256(
             abi.encode(block.chainid, address(manager), rId, op, payloadHash, nonce)
         );
 
+        vm.warp(10500);
         vm.prank(op);
         manager.commit(rId, commitHash);
 
         vm.warp(11500);
-
         vm.prank(op);
-        manager.reveal(rId, laneId, price, uLow, uHigh, isGated, diag, evHash, nonce);
-
-        vm.warp(10500); // Reset for next commit if in loop
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: rId,
+                laneId: laneId,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: uType,
+                isGated: isGated,
+                diagPayload: diag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
     }
 
     function test_FullVerificationLifecycle_HealthyConsensus() public {
         uint256 rId = _createStandardRound(false);
 
         // Commit & reveal across 5 lanes (all agreeing at $2500)
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 1);
-        _commitAndReveal(rId, op2, LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 2);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, emptyDiag, 3);
-        _commitAndReveal(rId, op4, LANE_4_OU, 0, 0, 0, false, emptyDiag, 4);
-        _commitAndReveal(rId, op5, LANE_5_CUSUM, 0, 0, 0, false, emptyDiag, 5);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 1);
+        _commitAndReveal(rId, op2, OP_ID_2, LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 2);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 3);
+        _commitAndReveal(rId, op4, OP_ID_4, LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 4);
+        _commitAndReveal(rId, op5, OP_ID_5, LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 5);
 
         // Advance to revealEnd (12000)
         vm.warp(12000);
@@ -187,17 +205,19 @@ contract VerificationManagerTest is Test {
     function test_SingleLaneQuorumProhibition() public {
         uint256 rId = _createStandardRound(false);
 
-        // Even if 3 operators reveal, if they are all in Lane 1, distinct applicable lanes = 1 < 3
+        // Even if 3 distinct operators reveal, if they are all in Lane 1, distinct applicable lanes = 1 < 3
+        bytes32 opId1B = keccak256("OP_1B");
+        bytes32 opId1C = keccak256("OP_1C");
         address op1B = address(0xB1);
         address op1C = address(0xB2);
         vm.startPrank(owner);
-        registry.registerValidator(op1B, LANE_1_KALMAN, keccak256("K1B"));
-        registry.registerValidator(op1C, LANE_1_KALMAN, keccak256("K1C"));
+        registry.registerValidator(opId1B, op1B, LANE_1_KALMAN, keccak256("K1B"));
+        registry.registerValidator(opId1C, op1C, LANE_1_KALMAN, keccak256("K1C"));
         vm.stopPrank();
 
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 1);
-        _commitAndReveal(rId, op1B, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 2);
-        _commitAndReveal(rId, op1C, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 3);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 1);
+        _commitAndReveal(rId, op1B, opId1B, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 2);
+        _commitAndReveal(rId, op1C, opId1C, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 3);
 
         vm.warp(12000);
         manager.aggregateValidatorEvidence(rId);
@@ -212,9 +232,9 @@ contract VerificationManagerTest is Test {
         uint256 rId = _createStandardRound(true);
 
         // Submit reveals for Lane 1 (Kalman), Lane 3 (JSD), Lane 5 (CUSUM) -> 3 distinct applicable lanes!
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 1);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, emptyDiag, 2);
-        _commitAndReveal(rId, op5, LANE_5_CUSUM, 0, 0, 0, false, emptyDiag, 3);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 1);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 2);
+        _commitAndReveal(rId, op5, OP_ID_5, LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 3);
 
         vm.warp(12000);
         manager.aggregateValidatorEvidence(rId);
@@ -228,10 +248,10 @@ contract VerificationManagerTest is Test {
     function test_OsmReadFailure_Fallback() public {
         uint256 rId = _createStandardRound(false);
 
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 1);
-        _commitAndReveal(rId, op2, LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, emptyDiag, 2);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, emptyDiag, 3);
-        _commitAndReveal(rId, op4, LANE_4_OU, 0, 0, 0, false, emptyDiag, 4);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 1);
+        _commitAndReveal(rId, op2, OP_ID_2, LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 2);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 3);
+        _commitAndReveal(rId, op4, OP_ID_4, LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, emptyDiag, 4);
 
         vm.warp(12000);
         manager.aggregateValidatorEvidence(rId);

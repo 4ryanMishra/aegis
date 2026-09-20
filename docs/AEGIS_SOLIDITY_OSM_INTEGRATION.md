@@ -1,6 +1,6 @@
 # AEGIS — Solidity / OSM Integration Architecture Specification
-**Document Version:** 1.2.0  
-**Status:** Implemented & Verified (Phase 4B Foundry Implementation — Solc 0.8.24, 54/54 Tests Passing)  
+**Document Version:** 1.3.0  
+**Status:** Implemented & Hardened (Phase 4B.1 Trust Model Hardening — Solc 0.8.24 via-IR, 71/71 Tests Passing)  
 **Target Platform:** Ethereum / EVM (Foundry / OpenZeppelin v5.0 compliant)  
 **Target Protocol Context:** Multipli RWAUSD Delayed Oracle Integration  
 

@@ -14,6 +14,10 @@ import {
 contract ValidatorRegistryTest is Test {
     ValidatorRegistry registry;
     address owner = address(0xAA1);
+    bytes32 opId1 = keccak256("OPERATOR_ONE");
+    bytes32 opId2 = keccak256("OPERATOR_TWO");
+    bytes32 opId3 = keccak256("OPERATOR_THREE");
+
     address op1 = address(0xB01);
     address op2 = address(0xB02);
     address op3 = address(0xB03);
@@ -27,23 +31,25 @@ contract ValidatorRegistryTest is Test {
     function test_RegisterValidator_Success() public {
         bytes32 meta = keccak256("NODE_KALMAN_1");
         vm.prank(owner);
-        registry.registerValidator(op1, LANE_1_KALMAN, meta);
+        registry.registerValidator(opId1, op1, LANE_1_KALMAN, meta);
 
         assertTrue(registry.isValidatorActive(op1));
         assertEq(registry.getValidatorLane(op1), LANE_1_KALMAN);
+        assertEq(registry.getValidatorOperatorId(op1), opId1);
 
-        ValidatorRegistry.ValidatorInfo memory info = registry.getValidator(op1);
-        assertEq(info.operator, op1);
-        assertEq(info.laneId, LANE_1_KALMAN);
-        assertEq(info.metadataHash, meta);
-        assertTrue(info.isActive);
+        ValidatorRegistry.ValidatorRecord memory record = registry.getValidator(op1);
+        assertEq(record.operatorId, opId1);
+        assertEq(record.operator, op1);
+        assertEq(record.laneId, LANE_1_KALMAN);
+        assertEq(record.metadataHash, meta);
+        assertTrue(record.isActive);
     }
 
     function test_MultipleOperatorsPerLane() public {
         vm.startPrank(owner);
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
-        registry.registerValidator(op2, LANE_1_KALMAN, keccak256("K2"));
-        registry.registerValidator(op3, LANE_2_HUBER, keccak256("H1"));
+        registry.registerValidator(opId1, op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(opId2, op2, LANE_1_KALMAN, keccak256("K2"));
+        registry.registerValidator(opId3, op3, LANE_2_HUBER, keccak256("H1"));
         vm.stopPrank();
 
         address[] memory kalmanOps = registry.getLaneOperators(LANE_1_KALMAN);
@@ -59,24 +65,24 @@ contract ValidatorRegistryTest is Test {
     function test_RevertWhen_NonOwnerRegisters() public {
         vm.prank(unauthorized);
         vm.expectRevert();
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(opId1, op1, LANE_1_KALMAN, keccak256("K1"));
     }
 
     function test_RevertWhen_InvalidLaneId() public {
         vm.startPrank(owner);
         vm.expectRevert(abi.encodeWithSelector(ValidatorRegistry.InvalidLaneId.selector, uint8(0)));
-        registry.registerValidator(op1, 0, keccak256("INVALID"));
+        registry.registerValidator(opId1, op1, 0, keccak256("INVALID"));
 
         vm.expectRevert(abi.encodeWithSelector(ValidatorRegistry.InvalidLaneId.selector, uint8(6)));
-        registry.registerValidator(op2, 6, keccak256("INVALID"));
+        registry.registerValidator(opId2, op2, 6, keccak256("INVALID"));
         vm.stopPrank();
     }
 
     function test_RevertWhen_DuplicateRegistration() public {
         vm.startPrank(owner);
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(opId1, op1, LANE_1_KALMAN, keccak256("K1"));
         vm.expectRevert(abi.encodeWithSelector(ValidatorRegistry.ValidatorAlreadyRegistered.selector, op1));
-        registry.registerValidator(op1, LANE_2_HUBER, keccak256("K2"));
+        registry.registerValidator(opId1, op1, LANE_2_HUBER, keccak256("K2"));
         vm.stopPrank();
     }
 
@@ -98,16 +104,21 @@ contract ValidatorRegistryTest is Test {
     }
 
     function test_SetStatusAndMetadata() public {
-        vm.prank(owner);
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
+        vm.startPrank(owner);
+        registry.registerValidator(opId1, op1, LANE_1_KALMAN, keccak256("INIT"));
 
-        vm.prank(owner);
         registry.setValidatorStatus(op1, false);
         assertFalse(registry.isValidatorActive(op1));
 
-        bytes32 newMeta = keccak256("K1_UPDATED");
+        registry.setValidatorStatus(op1, true);
+        assertTrue(registry.isValidatorActive(op1));
+        vm.stopPrank();
+
+        bytes32 newMeta = keccak256("NEW_META");
         vm.prank(op1);
         registry.updateMetadataHash(op1, newMeta);
-        assertEq(registry.getValidator(op1).metadataHash, newMeta);
+
+        ValidatorRegistry.ValidatorRecord memory record = registry.getValidator(op1);
+        assertEq(record.metadataHash, newMeta);
     }
 }

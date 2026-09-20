@@ -8,6 +8,7 @@ import {
     LANE_2_HUBER
 } from "../../src/AEGISVerificationManager.sol";
 import {ValidatorRegistry} from "../../src/ValidatorRegistry.sol";
+import {AggregatorLib} from "../../src/libraries/AggregatorLib.sol";
 import {MarketAttestor} from "../../src/MarketAttestor.sol";
 import {AEGISEvidenceEngine} from "../../src/AEGISEvidenceEngine.sol";
 import {AEGISDecisionEngine} from "../../src/AEGISDecisionEngine.sol";
@@ -29,6 +30,9 @@ contract CommitRevealTest is Test {
     uint256 op2Pk = 0x102;
     address op2;
     address unauthorized = address(0xDEAD);
+
+    bytes32 constant OP_ID_1 = keccak256("OPERATOR_1");
+    bytes32 constant OP_ID_2 = keccak256("OPERATOR_2");
 
     bytes32 assetId = bytes32("XAU/USD");
     uint256 roundId;
@@ -64,8 +68,8 @@ contract CommitRevealTest is Test {
         priceRouter.setVerificationManager(address(manager));
 
         // Register op1 for Lane 1 Kalman, op2 for Lane 2 Huber
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
-        registry.registerValidator(op2, LANE_2_HUBER, keccak256("H1"));
+        registry.registerValidator(OP_ID_1, op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(OP_ID_2, op2, LANE_2_HUBER, keccak256("H1"));
 
         mockOsm = new MockOSM(2500 * WAD);
 
@@ -90,16 +94,17 @@ contract CommitRevealTest is Test {
     function _computeCommitHash(
         uint256 rId,
         address operator,
+        bytes32 operatorId,
         uint8 laneId,
         uint256 price,
-        uint256 uLow,
-        uint256 uHigh,
+        uint256 uVal,
+        AggregatorLib.UncertaintyType uType,
         bool isGated,
         bytes32 evHash,
         uint256 nonce
     ) internal view returns (bytes32) {
         bytes32 payloadHash = keccak256(
-            abi.encode(laneId, price, uLow, uHigh, isGated, emptyDiag, evHash)
+            abi.encode(operatorId, laneId, price, uVal, uType, isGated, emptyDiag, evHash)
         );
         return keccak256(
             abi.encode(block.chainid, address(manager), rId, operator, payloadHash, nonce)
@@ -108,18 +113,18 @@ contract CommitRevealTest is Test {
 
     function test_CommitAndReveal_Success() public {
         uint256 price = 2500 * WAD;
-        uint256 uLow = 2490 * WAD;
-        uint256 uHigh = 2510 * WAD;
+        uint256 uVal = 10 * WAD;
         bytes32 evHash = keccak256("OFFCHAIN_KALMAN_TELEMETRY");
         uint256 nonce = 42;
 
         bytes32 commitHash = _computeCommitHash(
             roundId,
             op1,
+            OP_ID_1,
             LANE_1_KALMAN,
             price,
-            uLow,
-            uHigh,
+            uVal,
+            AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             false,
             evHash,
             nonce
@@ -135,15 +140,17 @@ contract CommitRevealTest is Test {
         // Reveal
         vm.prank(op1);
         manager.reveal(
-            roundId,
-            LANE_1_KALMAN,
-            price,
-            uLow,
-            uHigh,
-            false,
-            emptyDiag,
-            evHash,
-            nonce
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
         );
 
         assertEq(manager.getRoundRevealsCount(roundId), 1);
@@ -152,16 +159,18 @@ contract CommitRevealTest is Test {
 
     function test_RevertWhen_CommitmentMismatch_WrongNonce() public {
         uint256 price = 2500 * WAD;
+        uint256 uVal = 10 * WAD;
         bytes32 evHash = keccak256("TELEMETRY");
         uint256 realNonce = 42;
 
         bytes32 commitHash = _computeCommitHash(
             roundId,
             op1,
+            OP_ID_1,
             LANE_1_KALMAN,
             price,
-            2490 * WAD,
-            2510 * WAD,
+            uVal,
+            AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             false,
             evHash,
             realNonce
@@ -176,30 +185,34 @@ contract CommitRevealTest is Test {
         vm.prank(op1);
         vm.expectRevert(AEGISVerificationManager.CommitmentMismatch.selector);
         manager.reveal(
-            roundId,
-            LANE_1_KALMAN,
-            price,
-            2490 * WAD,
-            2510 * WAD,
-            false,
-            emptyDiag,
-            evHash,
-            999 // Wrong nonce!
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: 999 // Wrong nonce!
+            })
         );
     }
 
     function test_RevertWhen_RevealTwice() public {
         uint256 price = 2500 * WAD;
+        uint256 uVal = 10 * WAD;
         bytes32 evHash = keccak256("TELEMETRY");
         uint256 nonce = 42;
 
         bytes32 commitHash = _computeCommitHash(
             roundId,
             op1,
+            OP_ID_1,
             LANE_1_KALMAN,
             price,
-            2490 * WAD,
-            2510 * WAD,
+            uVal,
+            AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             false,
             evHash,
             nonce
@@ -211,26 +224,52 @@ contract CommitRevealTest is Test {
         vm.warp(11500);
 
         vm.prank(op1);
-        manager.reveal(roundId, LANE_1_KALMAN, price, 2490 * WAD, 2510 * WAD, false, emptyDiag, evHash, nonce);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
 
         // Second reveal
         vm.prank(op1);
         vm.expectRevert(abi.encodeWithSelector(AEGISVerificationManager.AlreadyRevealed.selector, roundId, op1));
-        manager.reveal(roundId, LANE_1_KALMAN, price, 2490 * WAD, 2510 * WAD, false, emptyDiag, evHash, nonce);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
     }
 
     function test_RevertWhen_EarlyOrLateReveal() public {
         uint256 price = 2500 * WAD;
+        uint256 uVal = 10 * WAD;
         bytes32 evHash = keccak256("TELEMETRY");
         uint256 nonce = 42;
 
         bytes32 commitHash = _computeCommitHash(
             roundId,
             op1,
+            OP_ID_1,
             LANE_1_KALMAN,
             price,
-            2490 * WAD,
-            2510 * WAD,
+            uVal,
+            AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             false,
             evHash,
             nonce
@@ -242,13 +281,37 @@ contract CommitRevealTest is Test {
         // Early reveal at t=10500 (reveal starts at 11000)
         vm.prank(op1);
         vm.expectRevert();
-        manager.reveal(roundId, LANE_1_KALMAN, price, 2490 * WAD, 2510 * WAD, false, emptyDiag, evHash, nonce);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
 
         // Late reveal at t=12001 (reveal ends at 12000)
         vm.warp(12001);
         vm.prank(op1);
         vm.expectRevert();
-        manager.reveal(roundId, LANE_1_KALMAN, price, 2490 * WAD, 2510 * WAD, false, emptyDiag, evHash, nonce);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: roundId,
+                laneId: LANE_1_KALMAN,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: emptyDiag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
     }
 
     function test_RevertWhen_UnauthorizedValidatorCommits() public {

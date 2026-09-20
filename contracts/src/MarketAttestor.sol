@@ -7,8 +7,25 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title MarketAttestor
 /// @notice Verifies signed EIP-712 terminal market price observations (P_MARKET).
-/// @dev An authorized off-chain market observer signs an attestation payload at the end of the
-/// verification window. On-chain contracts verify the cryptographic signature, freshness, and anti-replay.
+/// @dev TRUST BOUNDARY & EPISTEMIC MODEL:
+/// The MarketAttestor acts strictly as an authenticated **Market Observer**, NOT an unquestionable source of ground truth.
+/// 
+/// What EIP-712 Cryptographic Verification Proves:
+/// 1. Signer Authenticity: The payload was genuinely signed by an authorized market observer address.
+/// 2. Payload Integrity: The assetId, roundId, price, timestamp, and sourceId were not tampered with in transit.
+/// 3. Round Binding: The attestation explicitly targets the exact verification round.
+/// 4. Freshness Bounds: The observation timestamp falls within [revealEnd - maxStaleness, block.timestamp + allowedFutureSkew].
+/// 5. Replay Protection: Each unique attestation digest can only be consumed once.
+///
+/// What EIP-712 Cryptographic Verification Does NOT Prove:
+/// 1. Source Market Truth: It does not prove that the underlying venue reported a fair equilibrium price.
+/// 2. Absence of Market Manipulation: It does not prevent flash-loans or wash trading on the source venue itself.
+/// 3. Economic Correctness: Downstream contracts treat P_MARKET as one vertex in triangular verification,
+///    never as an unvetted authoritative price.
+///
+/// PROTOTYPE TRUST MODEL:
+/// The current MVP uses a single governance-authorized market observer signer. Future production iterations
+/// can expand this to an M-of-N committee or threshold signature scheme without altering the Evidence Engine boundary.
 contract MarketAttestor is EIP712, Ownable {
     bytes32 public constant ATTESTATION_TYPEHASH = keccak256(
         "MarketAttestation(bytes32 assetId,uint256 roundId,uint256 price,uint256 timestamp,bytes32 sourceId,uint256 nonce)"
@@ -47,7 +64,7 @@ contract MarketAttestor is EIP712, Ownable {
 
     constructor(address initialOwner) EIP712("AEGISMarketAttestor", "1") Ownable(initialOwner) {}
 
-    /// @notice Authorizes or deauthorizes a market price attestor
+    /// @notice Authorizes or deauthorizes a market observer attestor
     function setAttestorAuthorization(address attestor, bool isAuthorized) external onlyOwner {
         isAuthorizedAttestor[attestor] = isAuthorized;
         emit AttestorAuthorizationUpdated(attestor, isAuthorized);
@@ -60,11 +77,11 @@ contract MarketAttestor is EIP712, Ownable {
         emit TimingParametersUpdated(newFutureSkew, newMaxStaleness);
     }
 
-    /// @notice Verifies an EIP-712 market attestation against round constraints and signer authorization.
+    /// @notice Verifies an EIP-712 market attestation against round constraints and observer authorization.
     /// @param attestation The attestation data payload
-    /// @param signature The 65-byte ECDSA signature from the authorized attestor
+    /// @param signature The 65-byte ECDSA signature from the authorized market observer
     /// @param minValidTimestamp The lower bound on acceptable timestamp (e.g. round.revealEnd - maxSlack)
-    /// @return attestor The recovered authorized signer address
+    /// @return attestor The recovered authorized observer address
     function verifyAttestation(
         MarketAttestation calldata attestation,
         bytes calldata signature,

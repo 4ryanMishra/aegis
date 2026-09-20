@@ -1,28 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IAEGISPriceFeed} from "./interfaces/IAEGISPriceFeed.sol";
-import {IOSM} from "./interfaces/IOSM.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ValidatorRegistry, LANE_1_KALMAN, LANE_2_HUBER, LANE_3_JSD, LANE_4_OU, LANE_5_CUSUM} from "./ValidatorRegistry.sol";
+import {AggregatorLib} from "./libraries/AggregatorLib.sol";
+import {FixedPointMath} from "./libraries/FixedPointMath.sol";
 import {MarketAttestor} from "./MarketAttestor.sol";
 import {AEGISEvidenceEngine} from "./AEGISEvidenceEngine.sol";
 import {AEGISDecisionEngine} from "./AEGISDecisionEngine.sol";
 import {AEGISPriceRouter} from "./AEGISPriceRouter.sol";
-import {AggregatorLib} from "./libraries/AggregatorLib.sol";
-import {FixedPointMath} from "./libraries/FixedPointMath.sol";
+import {IAEGISPriceFeed} from "./interfaces/IAEGISPriceFeed.sol";
+import {IOSM} from "./interfaces/IOSM.sol";
 
 /// @title AEGISVerificationManager
-/// @notice Owns the lifecycle of AEGIS verification rounds, managing commit/reveal, applicability-aware
-/// quorum enforcement, two-tier aggregation, read-only OSM inspection, and definitive price finalization.
-/// @dev CRITICAL ARCHITECTURAL INVARIANTS:
-/// 1. AEGIS is downstream of the OSM in data flow; validator submissions NEVER enter the OSM queue.
-/// 2. P_FINAL is NEVER written back into the upstream OSM.
-/// 3. Verification work runs concurrently during the existing OSM delay (zero added delay).
-/// 4. Heavy quantitative inference remains off-chain; Solidity verifies cryptographic provenance,
-///    commitments, quorum, two-tier synthesis, and safety rules.
-contract AEGISVerificationManager is ReentrancyGuard, Ownable {
+/// @notice Core coordinator state machine managing verification rounds, commit-reveal,
+/// multi-operator aggregation, market attestation ingestion, and decision routing.
+/// @dev ZERO DOUBLE-DELAY ARCHITECTURE:
+/// Rounds open at T0 concurrently with the existing 1-hour OSM delay. Validators collect evidence,
+/// commit, and reveal during the delay. At T1 (when the OSM matures), keeper finalization executes
+/// atomically with zero added latency.
+contract AEGISVerificationManager is Ownable, ReentrancyGuard {
     using FixedPointMath for uint256;
 
     enum RoundState {
@@ -33,19 +31,19 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         AGGREGATED,
         MARKET_EVIDENCE_READY,
         DECISION_READY,
-        FINALIZED,
+        OSM_READ_FAILED,
         INSUFFICIENT_QUORUM,
         MARKET_EVIDENCE_INVALID,
-        OSM_READ_FAILED,
-        DISPUTED,
-        EXPIRED
+        EXPIRED,
+        FINALIZED,
+        DISPUTED
     }
 
     struct QuorumConfig {
-        uint32 minTotalQuorum;               // Minimum total valid reveals required
-        uint32 minDistinctOperators;         // Minimum distinct operator addresses
-        uint32 minDistinctApplicableLanes;   // Minimum distinct applicable methodology lanes (typically 3)
-        bool ouNotApplicable;                // Asset-specific flag: true if Lane 4 OU is NOT_APPLICABLE
+        uint16 minTotalQuorum;             // Minimum total reveal count
+        uint16 minDistinctOperators;       // Minimum distinct operatorId identities (not wallet addresses)
+        uint16 minDistinctApplicableLanes; // Minimum distinct active/applicable methodology lanes (>=3)
+        bool ouNotApplicable;              // True if OU is marked NOT_APPLICABLE for this asset
     }
 
     struct RoundTiming {
@@ -72,12 +70,21 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         uint64 finalizedAt;
     }
 
-    struct ValidatorRevealRecord {
-        address operator;
+    struct CommitmentRecord {
+        bytes32 commitHash;
+        bytes32 operatorId;
         uint8 laneId;
+        uint64 commitTimestamp;
+        bool exists;
+    }
+
+    struct ValidatorRevealRecord {
+        bytes32 operatorId;      // Organizational operator identity
+        address operator;        // Signing wallet address
+        uint8 laneId;            // Methodology lane (1 to 5)
         uint256 price;           // 0 for diagnostic lanes
-        uint256 uncertaintyLower; // 0 for diagnostic lanes
-        uint256 uncertaintyUpper; // 0 for diagnostic lanes
+        uint256 uncertaintyValue;// Half-width or direct std dev in WAD
+        AggregatorLib.UncertaintyType uncertaintyType; // Explicit uncertainty semantic
         bytes32 evidenceHash;    // keccak256 of off-chain rich telemetry
         uint64 timestamp;
         bool isGated;            // Kalman innovation gated
@@ -99,8 +106,9 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
     // Round Storage
     uint256 public nextRoundId = 1;
     mapping(uint256 => VerificationRound) public rounds;
-    mapping(uint256 => mapping(address => bytes32)) public commitments;
+    mapping(uint256 => mapping(address => CommitmentRecord)) public commitments;
     mapping(uint256 => mapping(address => bool)) public hasRevealed;
+    mapping(uint256 => mapping(uint8 => mapping(bytes32 => bool))) internal _laneOperatorRevealed;
     mapping(uint256 => ValidatorRevealRecord[]) internal _roundReveals;
     mapping(uint256 => mapping(uint8 => AggregatorLib.OperatorPriceSubmission[])) internal _lanePriceSubmissions;
     mapping(uint256 => mapping(uint8 => DiagnosticPayload[])) internal _laneDiagnosticPayloads;
@@ -116,11 +124,18 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         uint64 revealEnd,
         uint64 finalizationDeadline
     );
-    event CommitmentSubmitted(uint256 indexed roundId, address indexed operator, bytes32 commitHash);
+    event CommitmentSubmitted(
+        uint256 indexed roundId,
+        address indexed operator,
+        bytes32 indexed operatorId,
+        uint8 laneId,
+        bytes32 commitHash
+    );
     event ValidatorRevealed(
         uint256 indexed roundId,
         address indexed operator,
-        uint8 indexed laneId,
+        bytes32 indexed operatorId,
+        uint8 laneId,
         uint256 price,
         bytes32 evidenceHash
     );
@@ -150,6 +165,8 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
     error RoundDoesNotExist(uint256 roundId);
     error InvalidState(RoundState current, RoundState required);
     error UnauthorizedValidator(address caller);
+    error IdentityOrLaneMutated(bytes32 committedOpId, bytes32 currentOpId, uint8 committedLane, uint8 currentLane);
+    error DuplicateOperatorInLane(bytes32 operatorId, uint8 laneId);
     error CommitmentAlreadyExists(uint256 roundId, address operator);
     error CommitmentDoesNotExist(uint256 roundId, address operator);
     error AlreadyRevealed(uint256 roundId, address operator);
@@ -157,6 +174,7 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
     error WindowNotOpen(string windowName, uint256 currentTimestamp, uint256 boundaryTimestamp);
     error WindowClosed(string windowName, uint256 currentTimestamp, uint256 boundaryTimestamp);
     error RoundExpired(uint256 roundId, uint256 currentTimestamp, uint256 deadline);
+    error AlreadyFinalized(uint256 roundId);
 
     constructor(
         address initialOwner,
@@ -225,7 +243,7 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
     }
 
     /// @notice Submits a cryptographic commitment during the commit window.
-    /// @dev Commitment format: keccak256(abi.encode(block.chainid, address(this), roundId, msg.sender, payloadHash, nonce))
+    /// @dev Snapshots operatorId and laneId to guarantee round consistency.
     function commit(uint256 roundId, bytes32 commitHash) external nonReentrant {
         VerificationRound storage round = rounds[roundId];
         if (round.state == RoundState.UNINITIALIZED) revert RoundDoesNotExist(roundId);
@@ -240,35 +258,48 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         if (!validatorRegistry.isValidatorActive(msg.sender)) {
             revert UnauthorizedValidator(msg.sender);
         }
-        if (commitments[roundId][msg.sender] != bytes32(0)) {
+
+        bytes32 operatorId = validatorRegistry.getValidatorOperatorId(msg.sender);
+        uint8 laneId = validatorRegistry.getValidatorLane(msg.sender);
+        if (operatorId == bytes32(0)) revert UnauthorizedValidator(msg.sender);
+
+        if (commitments[roundId][msg.sender].exists) {
             revert CommitmentAlreadyExists(roundId, msg.sender);
         }
 
-        commitments[roundId][msg.sender] = commitHash;
+        commitments[roundId][msg.sender] = CommitmentRecord({
+            commitHash: commitHash,
+            operatorId: operatorId,
+            laneId: laneId,
+            commitTimestamp: uint64(block.timestamp),
+            exists: true
+        });
 
         if (round.state == RoundState.ROUND_CREATED) {
             _transitionState(round, RoundState.COMMIT_OPEN);
         }
 
-        emit CommitmentSubmitted(roundId, msg.sender, commitHash);
+        emit CommitmentSubmitted(roundId, msg.sender, operatorId, laneId, commitHash);
+    }
+
+    struct RevealParams {
+        uint256 roundId;
+        uint8 laneId;
+        uint256 price;
+        uint256 uncertaintyValue;
+        AggregatorLib.UncertaintyType uncertaintyType;
+        bool isGated;
+        DiagnosticPayload diagPayload;
+        bytes32 evidenceHash;
+        uint256 nonce;
     }
 
     /// @notice Reveals validator evidence during the reveal window.
     /// @dev TRUST BOUNDARY: Commit/reveal proves identity, non-repudiation, and anti-copying.
     /// It does not guarantee off-chain mathematical truth, which is triangulated downstream.
-    function reveal(
-        uint256 roundId,
-        uint8 laneId,
-        uint256 price,
-        uint256 uncertaintyLower,
-        uint256 uncertaintyUpper,
-        bool isGated,
-        DiagnosticPayload calldata diagPayload,
-        bytes32 evidenceHash,
-        uint256 nonce
-    ) external nonReentrant {
-        VerificationRound storage round = rounds[roundId];
-        if (round.state == RoundState.UNINITIALIZED) revert RoundDoesNotExist(roundId);
+    function reveal(RevealParams calldata params) external nonReentrant {
+        VerificationRound storage round = rounds[params.roundId];
+        if (round.state == RoundState.UNINITIALIZED) revert RoundDoesNotExist(params.roundId);
 
         if (block.timestamp < round.timing.revealStart) {
             revert WindowNotOpen("REVEAL", block.timestamp, round.timing.revealStart);
@@ -277,68 +308,88 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
             revert WindowClosed("REVEAL", block.timestamp, round.timing.revealEnd);
         }
 
-        if (hasRevealed[roundId][msg.sender]) {
-            revert AlreadyRevealed(roundId, msg.sender);
+        CommitmentRecord memory comm = commitments[params.roundId][msg.sender];
+        if (!comm.exists) {
+            revert CommitmentDoesNotExist(params.roundId, msg.sender);
+        }
+        if (hasRevealed[params.roundId][msg.sender]) {
+            revert AlreadyRevealed(params.roundId, msg.sender);
         }
 
-        // Verify registered lane matches
-        uint8 registeredLane = validatorRegistry.getValidatorLane(msg.sender);
-        if (registeredLane != laneId) {
+        // Validator must remain active in registry
+        if (!validatorRegistry.isValidatorActive(msg.sender)) {
             revert UnauthorizedValidator(msg.sender);
+        }
+
+        // Enforce round consistency against snapshotted commitment identity and lane
+        bytes32 currentOpId = validatorRegistry.getValidatorOperatorId(msg.sender);
+        uint8 currentLane = validatorRegistry.getValidatorLane(msg.sender);
+        if (currentOpId != comm.operatorId || currentLane != comm.laneId || params.laneId != comm.laneId) {
+            revert IdentityOrLaneMutated(comm.operatorId, currentOpId, comm.laneId, currentLane);
         }
 
         // Verify cryptographic commitment matches revealed parameters
         bytes32 payloadHash = keccak256(
             abi.encode(
-                laneId,
-                price,
-                uncertaintyLower,
-                uncertaintyUpper,
-                isGated,
-                diagPayload,
-                evidenceHash
+                comm.operatorId,
+                params.laneId,
+                params.price,
+                params.uncertaintyValue,
+                params.uncertaintyType,
+                params.isGated,
+                params.diagPayload,
+                params.evidenceHash
             )
         );
         bytes32 expectedCommitHash = keccak256(
-            abi.encode(block.chainid, address(this), roundId, msg.sender, payloadHash, nonce)
+            abi.encode(block.chainid, address(this), params.roundId, msg.sender, payloadHash, params.nonce)
         );
 
-        if (commitments[roundId][msg.sender] != expectedCommitHash) {
+        if (comm.commitHash != expectedCommitHash) {
             revert CommitmentMismatch();
         }
 
-        hasRevealed[roundId][msg.sender] = true;
+        // Prevent operator over-influence: at most 1 submission per operatorId per lane in a round
+        if (_laneOperatorRevealed[params.roundId][params.laneId][comm.operatorId]) {
+            revert DuplicateOperatorInLane(comm.operatorId, params.laneId);
+        }
+        _laneOperatorRevealed[params.roundId][params.laneId][comm.operatorId] = true;
+        hasRevealed[params.roundId][msg.sender] = true;
+
+        uint256 effPrice = params.price;
+        uint256 effUncertainty = params.uncertaintyValue;
 
         // Route submission to appropriate lane accumulator
-        ValidatorRegistry.LaneRole role = validatorRegistry.getLaneRole(laneId);
+        ValidatorRegistry.LaneRole role = validatorRegistry.getLaneRole(params.laneId);
         if (role == ValidatorRegistry.LaneRole.PRICE_ESTIMATOR) {
-            _lanePriceSubmissions[roundId][laneId].push(
+            _lanePriceSubmissions[params.roundId][params.laneId].push(
                 AggregatorLib.OperatorPriceSubmission({
+                    operatorId: comm.operatorId,
                     operator: msg.sender,
-                    price: price,
-                    uncertaintyLower: uncertaintyLower,
-                    uncertaintyUpper: uncertaintyUpper,
-                    isGated: isGated
+                    price: params.price,
+                    uncertaintyValue: params.uncertaintyValue,
+                    uncertaintyType: params.uncertaintyType,
+                    isGated: params.isGated
                 })
             );
         } else if (role == ValidatorRegistry.LaneRole.DIAGNOSTIC) {
             // Diagnostic lanes strictly record diagnostic flags; price is forced to 0
-            _laneDiagnosticPayloads[roundId][laneId].push(diagPayload);
-            price = 0;
-            uncertaintyLower = 0;
-            uncertaintyUpper = 0;
+            _laneDiagnosticPayloads[params.roundId][params.laneId].push(params.diagPayload);
+            effPrice = 0;
+            effUncertainty = 0;
         }
 
-        _roundReveals[roundId].push(
+        _roundReveals[params.roundId].push(
             ValidatorRevealRecord({
+                operatorId: comm.operatorId,
                 operator: msg.sender,
-                laneId: laneId,
-                price: price,
-                uncertaintyLower: uncertaintyLower,
-                uncertaintyUpper: uncertaintyUpper,
-                evidenceHash: evidenceHash,
+                laneId: params.laneId,
+                price: effPrice,
+                uncertaintyValue: effUncertainty,
+                uncertaintyType: params.uncertaintyType,
+                evidenceHash: params.evidenceHash,
                 timestamp: uint64(block.timestamp),
-                isGated: isGated
+                isGated: params.isGated
             })
         );
 
@@ -346,7 +397,7 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
             _transitionState(round, RoundState.REVEAL_OPEN);
         }
 
-        emit ValidatorRevealed(roundId, msg.sender, laneId, price, evidenceHash);
+        emit ValidatorRevealed(params.roundId, msg.sender, comm.operatorId, params.laneId, effPrice, params.evidenceHash);
     }
 
     /// @notice Evaluates applicability-aware 3D quorum and synthesizes P_DEC via Two-Tier Aggregation.
@@ -365,7 +416,7 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
             revert InvalidState(round.state, RoundState.REVEAL_OPEN);
         }
 
-        // 1. Evaluate Applicability-Aware 3D Quorum
+        // 1. Evaluate Applicability-Aware 3D Quorum (Counting distinct operatorId identities)
         (
             bool quorumMet,
             uint256 totalReveals,
@@ -607,6 +658,10 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         VerificationRound storage round = rounds[roundId];
         _checkExpiration(round);
 
+        if (round.state == RoundState.FINALIZED || round.state == RoundState.DISPUTED) {
+            revert AlreadyFinalized(roundId);
+        }
+
         // Step 1: Aggregate validator evidence
         if (round.state == RoundState.REVEAL_OPEN || round.state == RoundState.COMMIT_OPEN) {
             if (block.timestamp < round.timing.revealEnd) {
@@ -638,6 +693,7 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
     }
 
     /// @notice Evaluates Three-Dimensional Applicability-Aware Quorum.
+    /// @dev Quorum counts DISTINCT organizational operatorId values, NOT raw wallet addresses.
     function _evaluateQuorum(
         uint256 roundId,
         QuorumConfig memory config
@@ -652,22 +708,22 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
         ValidatorRevealRecord[] storage reveals = _roundReveals[roundId];
         totalReveals = reveals.length;
 
-        address[] memory seenOperators = new address[](totalReveals);
+        bytes32[] memory seenOperatorIds = new bytes32[](totalReveals);
         bool[] memory seenLanes = new bool[](6); // 1 to 5
 
         for (uint256 i = 0; i < totalReveals; i++) {
-            address op = reveals[i].operator;
+            bytes32 opId = reveals[i].operatorId;
             uint8 lane = reveals[i].laneId;
 
             bool isNewOp = true;
             for (uint256 j = 0; j < distinctOperators; j++) {
-                if (seenOperators[j] == op) {
+                if (seenOperatorIds[j] == opId) {
                     isNewOp = false;
                     break;
                 }
             }
-            if (isNewOp) {
-                seenOperators[distinctOperators] = op;
+            if (isNewOp && opId != bytes32(0)) {
+                seenOperatorIds[distinctOperators] = opId;
                 distinctOperators++;
             }
 
@@ -765,6 +821,23 @@ contract AEGISVerificationManager is ReentrancyGuard, Ownable {
             _transitionState(round, RoundState.EXPIRED);
             revert RoundExpired(round.roundId, block.timestamp, round.timing.finalizationDeadline);
         }
+    }
+
+    /// @notice Explicitly transitions a round past its deadline into EXPIRED state.
+    function expireRound(uint256 roundId) external nonReentrant {
+        VerificationRound storage round = rounds[roundId];
+        if (round.state == RoundState.UNINITIALIZED) revert RoundDoesNotExist(roundId);
+        if (
+            round.state == RoundState.FINALIZED ||
+            round.state == RoundState.DISPUTED ||
+            round.state == RoundState.EXPIRED
+        ) {
+            revert InvalidState(round.state, RoundState.DECISION_READY);
+        }
+        if (block.timestamp <= round.timing.finalizationDeadline) {
+            revert WindowNotOpen("EXPIRATION", block.timestamp, round.timing.finalizationDeadline);
+        }
+        _transitionState(round, RoundState.EXPIRED);
     }
 
     /// @notice Returns count of validator reveals for a round

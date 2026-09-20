@@ -9,14 +9,18 @@ contract AggregatorLibTest is Test {
     using FixedPointMath for uint256;
 
     uint256 constant WAD = 1e18;
+    bytes32 constant OP_1 = keccak256("OP_1");
+    bytes32 constant OP_2 = keccak256("OP_2");
+    bytes32 constant OP_3 = keccak256("OP_3");
 
     function test_Tier1_SingleOperator() public pure {
         AggregatorLib.OperatorPriceSubmission[] memory subs = new AggregatorLib.OperatorPriceSubmission[](1);
         subs[0] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_1,
             operator: address(0x1),
             price: 100 * WAD,
-            uncertaintyLower: 98 * WAD,
-            uncertaintyUpper: 102 * WAD,
+            uncertaintyValue: 196 * 1e16, // 1.96 WAD half-width => 1.0 WAD sigma
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
 
@@ -25,35 +29,38 @@ contract AggregatorLibTest is Test {
         assertTrue(est.isValid);
         assertFalse(est.isGated);
         assertEq(est.operatorCount, 1);
-        // CI width = 4 WAD, sigma = (4 * 100) / 392 = 1.02 WAD
+        // CI half-width = 1.96 WAD, sigma = (1.96 * 100) / 196 = 1.0 WAD
         // IQR for n=1 is 0
-        assertApproxEqAbs(est.sigmaLane, 1020408163265306122, 1e12);
+        assertEq(est.sigmaLane, 1 * WAD);
     }
 
     function test_Tier1_ThreeOperators_MedianAndDispersion() public pure {
         AggregatorLib.OperatorPriceSubmission[] memory subs = new AggregatorLib.OperatorPriceSubmission[](3);
         // Operator 1: 100
         subs[0] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_1,
             operator: address(0x1),
             price: 100 * WAD,
-            uncertaintyLower: 99 * WAD,
-            uncertaintyUpper: 101 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
         // Operator 2: 102 (outlier)
         subs[1] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_2,
             operator: address(0x2),
             price: 102 * WAD,
-            uncertaintyLower: 100 * WAD,
-            uncertaintyUpper: 104 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
         // Operator 3: 99
         subs[2] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_3,
             operator: address(0x3),
             price: 99 * WAD,
-            uncertaintyLower: 98 * WAD,
-            uncertaintyUpper: 100 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
 
@@ -62,31 +69,34 @@ contract AggregatorLibTest is Test {
         assertEq(est.price, 100 * WAD);
         assertEq(est.operatorCount, 3);
         // Range for n=3 is 102 - 99 = 3 WAD
-        // sigmaLane = medianSigma + range
-        assertTrue(est.sigmaLane > 3 * WAD);
+        // sigmaLane = medianSigma (1 WAD) + range (3 WAD) = 4 WAD
+        assertEq(est.sigmaLane, 4 * WAD);
     }
 
     function test_Tier1_GatingConsensus() public pure {
         AggregatorLib.OperatorPriceSubmission[] memory subs = new AggregatorLib.OperatorPriceSubmission[](3);
         subs[0] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_1,
             operator: address(0x1),
             price: 100 * WAD,
-            uncertaintyLower: 99 * WAD,
-            uncertaintyUpper: 101 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: true
         });
         subs[1] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_2,
             operator: address(0x2),
             price: 101 * WAD,
-            uncertaintyLower: 100 * WAD,
-            uncertaintyUpper: 102 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: true
         });
         subs[2] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: OP_3,
             operator: address(0x3),
             price: 100 * WAD,
-            uncertaintyLower: 99 * WAD,
-            uncertaintyUpper: 101 * WAD,
+            uncertaintyValue: 196 * 1e16,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
 
@@ -151,6 +161,7 @@ contract AggregatorLibTest is Test {
     }
 
     function test_Tier2_DegradedSingleLane() public pure {
+        // Kalman unrevealed/invalid
         AggregatorLib.CanonicalLaneEstimate memory kalman = AggregatorLib.CanonicalLaneEstimate({
             price: 0,
             sigmaLane: 0,
@@ -158,10 +169,11 @@ contract AggregatorLibTest is Test {
             isGated: false,
             isValid: false
         });
+        // Huber valid
         AggregatorLib.CanonicalLaneEstimate memory huber = AggregatorLib.CanonicalLaneEstimate({
             price: 100 * WAD,
             sigmaLane: 1 * WAD,
-            operatorCount: 1,
+            operatorCount: 2,
             isGated: false,
             isValid: true
         });

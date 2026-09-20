@@ -39,7 +39,9 @@ contract VerificationInvariantsTest is Test {
         vm.assume(p2 > 1e12 && p2 < 1e30);
 
         uint256 dev = FixedPointMath.relativeDeviationBps(p1, p2);
-        if (p1 == p2) {
+        uint256 diff = p1 > p2 ? uint256(p1 - p2) : uint256(p2 - p1);
+        uint256 minVal = p1 < p2 ? uint256(p1) : uint256(p2);
+        if (p1 == p2 || (diff * 10000) < minVal) {
             assertEq(dev, 0);
         } else {
             assertTrue(dev > 0);
@@ -54,24 +56,27 @@ contract VerificationInvariantsTest is Test {
 
         AggregatorLib.OperatorPriceSubmission[] memory subs = new AggregatorLib.OperatorPriceSubmission[](3);
         subs[0] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: bytes32(uint256(1)),
             operator: address(0x1),
             price: price1,
-            uncertaintyLower: price1 > 1e10 ? price1 - 1e10 : 0,
-            uncertaintyUpper: price1 + 1e10,
+            uncertaintyValue: 1e10,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
         subs[1] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: bytes32(uint256(2)),
             operator: address(0x2),
             price: price2,
-            uncertaintyLower: price2 > 1e10 ? price2 - 1e10 : 0,
-            uncertaintyUpper: price2 + 1e10,
+            uncertaintyValue: 1e10,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
         subs[2] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: bytes32(uint256(3)),
             operator: address(0x3),
             price: price3,
-            uncertaintyLower: price3 > 1e10 ? price3 - 1e10 : 0,
-            uncertaintyUpper: price3 + 1e10,
+            uncertaintyValue: 1e10,
+            uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
             isGated: false
         });
 

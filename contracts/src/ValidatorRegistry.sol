@@ -11,8 +11,10 @@ uint8 constant LANE_5_CUSUM = 5;
 
 /// @title ValidatorRegistry
 /// @notice Manages validator operator identities, methodology lane assignments, and operational status.
-/// @dev Explicitly decouples operator identity from methodology lanes: multiple independent operators
-/// can register and operate within the same methodology lane.
+/// @dev Explicitly decouples organizational operator identities (operatorId) from Ethereum wallet addresses:
+/// multiple signing wallets may be authorized under the same operatorId, but quorum and lane aggregation
+/// treat the operatorId as the canonical unit of organizational identity. Address diversity is not equivalent
+/// to organizational/operator independence.
 contract ValidatorRegistry is Ownable {
     uint8 public constant CANONICAL_LANE_1_KALMAN = LANE_1_KALMAN;
     uint8 public constant CANONICAL_LANE_2_HUBER = LANE_2_HUBER;
@@ -26,21 +28,30 @@ contract ValidatorRegistry is Ownable {
         DIAGNOSTIC
     }
 
-    struct ValidatorInfo {
-        address operator;
-        uint8 laneId;
-        bool isActive;
-        bytes32 metadataHash;
-        uint64 registeredAt;
+    struct ValidatorRecord {
+        bytes32 operatorId;    // Organizational / legal / staking identity
+        address operator;      // Authorized signing address
+        uint8 laneId;          // Methodology lane (1 to 5)
+        bool isActive;         // Active operational status
+        bytes32 metadataHash;  // Institutional provenance metadata
+        uint64 registeredAt;   // Registration block timestamp
     }
 
-    mapping(address => ValidatorInfo) private _validators;
+    mapping(address => ValidatorRecord) private _validators;
+    mapping(bytes32 => address[]) private _operatorAddresses;
     mapping(uint8 => address[]) private _laneOperators;
 
-    event ValidatorRegistered(address indexed operator, uint8 indexed laneId, bytes32 metadataHash);
+    event ValidatorRegistered(
+        bytes32 indexed operatorId,
+        address indexed operator,
+        uint8 indexed laneId,
+        bytes32 metadataHash
+    );
     event ValidatorStatusUpdated(address indexed operator, bool indexed isActive);
+    event ValidatorLaneUpdated(address indexed operator, uint8 indexed previousLane, uint8 indexed newLane);
     event ValidatorMetadataUpdated(address indexed operator, bytes32 indexed metadataHash);
 
+    error InvalidOperatorId();
     error InvalidOperatorAddress();
     error InvalidLaneId(uint8 laneId);
     error ValidatorAlreadyRegistered(address operator);
@@ -48,20 +59,24 @@ contract ValidatorRegistry is Ownable {
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
-    /// @notice Registers a new validator operator under a canonical methodology lane
-    /// @param operator The Ethereum address of the validator operator
+    /// @notice Registers a new validator signing address under an organizational operator ID and methodology lane
+    /// @param operatorId Unique governance/institutional operator identity
+    /// @param operator The Ethereum address of the validator signing node
     /// @param laneId The canonical methodology lane ID (1 to 5)
     /// @param metadataHash Cryptographic hash of validator operational metadata / node info
     function registerValidator(
+        bytes32 operatorId,
         address operator,
         uint8 laneId,
         bytes32 metadataHash
     ) external onlyOwner {
+        if (operatorId == bytes32(0)) revert InvalidOperatorId();
         if (operator == address(0)) revert InvalidOperatorAddress();
         if (laneId < 1 || laneId > 5) revert InvalidLaneId(laneId);
         if (_validators[operator].operator != address(0)) revert ValidatorAlreadyRegistered(operator);
 
-        _validators[operator] = ValidatorInfo({
+        _validators[operator] = ValidatorRecord({
+            operatorId: operatorId,
             operator: operator,
             laneId: laneId,
             isActive: true,
@@ -69,9 +84,10 @@ contract ValidatorRegistry is Ownable {
             registeredAt: uint64(block.timestamp)
         });
 
+        _operatorAddresses[operatorId].push(operator);
         _laneOperators[laneId].push(operator);
 
-        emit ValidatorRegistered(operator, laneId, metadataHash);
+        emit ValidatorRegistered(operatorId, operator, laneId, metadataHash);
     }
 
     /// @notice Activates or deactivates a validator operator
@@ -79,6 +95,18 @@ contract ValidatorRegistry is Ownable {
         if (_validators[operator].operator == address(0)) revert ValidatorNotRegistered(operator);
         _validators[operator].isActive = isActive;
         emit ValidatorStatusUpdated(operator, isActive);
+    }
+
+    /// @notice Updates the methodology lane assignment for a registered validator address
+    function setValidatorLane(address operator, uint8 newLaneId) external onlyOwner {
+        if (_validators[operator].operator == address(0)) revert ValidatorNotRegistered(operator);
+        if (newLaneId < 1 || newLaneId > 5) revert InvalidLaneId(newLaneId);
+
+        uint8 previousLane = _validators[operator].laneId;
+        _validators[operator].laneId = newLaneId;
+        _laneOperators[newLaneId].push(operator);
+
+        emit ValidatorLaneUpdated(operator, previousLane, newLaneId);
     }
 
     /// @notice Updates validator operational metadata hash
@@ -89,12 +117,17 @@ contract ValidatorRegistry is Ownable {
         emit ValidatorMetadataUpdated(operator, metadataHash);
     }
 
-    /// @notice Returns full validator info
-    function getValidator(address operator) external view returns (ValidatorInfo memory) {
+    /// @notice Returns full validator record
+    function getValidator(address operator) external view returns (ValidatorRecord memory) {
         return _validators[operator];
     }
 
-    /// @notice Checks if an operator is currently active
+    /// @notice Returns the organizational operator ID for a validator address
+    function getValidatorOperatorId(address operator) external view returns (bytes32) {
+        return _validators[operator].operatorId;
+    }
+
+    /// @notice Checks if an operator address is currently active
     function isValidatorActive(address operator) external view returns (bool) {
         return _validators[operator].isActive;
     }
@@ -102,6 +135,12 @@ contract ValidatorRegistry is Ownable {
     /// @notice Returns the methodology lane of a validator operator
     function getValidatorLane(address operator) external view returns (uint8) {
         return _validators[operator].laneId;
+    }
+
+    /// @notice Returns all signing addresses registered under an organizational operator ID
+    function getOperatorAddresses(bytes32 operatorId) external view returns (address[] memory) {
+        if (operatorId == bytes32(0)) revert InvalidOperatorId();
+        return _operatorAddresses[operatorId];
     }
 
     /// @notice Returns all operators registered under a methodology lane

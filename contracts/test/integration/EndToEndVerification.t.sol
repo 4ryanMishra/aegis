@@ -11,6 +11,7 @@ import {
     LANE_5_CUSUM
 } from "../../src/AEGISVerificationManager.sol";
 import {ValidatorRegistry} from "../../src/ValidatorRegistry.sol";
+import {AggregatorLib} from "../../src/libraries/AggregatorLib.sol";
 import {MarketAttestor} from "../../src/MarketAttestor.sol";
 import {AEGISEvidenceEngine} from "../../src/AEGISEvidenceEngine.sol";
 import {AEGISDecisionEngine} from "../../src/AEGISDecisionEngine.sol";
@@ -33,7 +34,13 @@ contract EndToEndVerificationTest is Test {
     uint256 attestorPk = 0xA11CE;
     address attestor;
 
-    // 5 Validator Nodes
+    // 5 Validator Nodes with distinct operator identities
+    bytes32 constant OP_ID_1 = keccak256("OPERATOR_ORG_1");
+    bytes32 constant OP_ID_2 = keccak256("OPERATOR_ORG_2");
+    bytes32 constant OP_ID_3 = keccak256("OPERATOR_ORG_3");
+    bytes32 constant OP_ID_4 = keccak256("OPERATOR_ORG_4");
+    bytes32 constant OP_ID_5 = keccak256("OPERATOR_ORG_5");
+
     uint256 op1Pk = 0x101; address op1;
     uint256 op2Pk = 0x102; address op2;
     uint256 op3Pk = 0x103; address op3;
@@ -79,12 +86,12 @@ contract EndToEndVerificationTest is Test {
 
         multipliConsumer = new MockMultipliConsumer(address(priceRouter));
 
-        // Register 5 operators across 5 lanes
-        registry.registerValidator(op1, LANE_1_KALMAN, keccak256("K1"));
-        registry.registerValidator(op2, LANE_2_HUBER, keccak256("H1"));
-        registry.registerValidator(op3, LANE_3_JSD, keccak256("J1"));
-        registry.registerValidator(op4, LANE_4_OU, keccak256("O1"));
-        registry.registerValidator(op5, LANE_5_CUSUM, keccak256("C1"));
+        // Register 5 operators across 5 lanes with distinct operatorId values
+        registry.registerValidator(OP_ID_1, op1, LANE_1_KALMAN, keccak256("K1"));
+        registry.registerValidator(OP_ID_2, op2, LANE_2_HUBER, keccak256("H1"));
+        registry.registerValidator(OP_ID_3, op3, LANE_3_JSD, keccak256("J1"));
+        registry.registerValidator(OP_ID_4, op4, LANE_4_OU, keccak256("O1"));
+        registry.registerValidator(OP_ID_5, op5, LANE_5_CUSUM, keccak256("C1"));
 
         mockOsm = new MockOSM(2500 * WAD);
         vm.stopPrank();
@@ -93,36 +100,45 @@ contract EndToEndVerificationTest is Test {
     function _commitAndReveal(
         uint256 rId,
         address op,
+        bytes32 opId,
         uint8 laneId,
         uint256 price,
-        uint256 uLow,
-        uint256 uHigh,
+        uint256 uVal,
+        AggregatorLib.UncertaintyType uType,
         bool isGated,
         AEGISVerificationManager.DiagnosticPayload memory diag,
         uint256 nonce
     ) internal {
         bytes32 evHash = keccak256(abi.encode(op, laneId));
         bytes32 payloadHash = keccak256(
-            abi.encode(laneId, price, uLow, uHigh, isGated, diag, evHash)
+            abi.encode(opId, laneId, price, uVal, uType, isGated, diag, evHash)
         );
         bytes32 commitHash = keccak256(
             abi.encode(block.chainid, address(manager), rId, op, payloadHash, nonce)
         );
 
+        vm.warp(10500);
         vm.prank(op);
         manager.commit(rId, commitHash);
 
         vm.warp(11500);
-
         vm.prank(op);
-        manager.reveal(rId, laneId, price, uLow, uHigh, isGated, diag, evHash, nonce);
-
-        vm.warp(10500);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: rId,
+                laneId: laneId,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: uType,
+                isGated: isGated,
+                diagPayload: diag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
     }
 
     function test_EndToEnd_T0_to_T1_ParallelVerification_HealthyConsensus() public {
-        // T0 (10000): OSM observation entered delay queue.
-        // Concurrently, AEGIS verification round opens (zero double-delay!)
         AEGISVerificationManager.RoundTiming memory timing = AEGISVerificationManager.RoundTiming({
             commitStart: 10000,
             revealStart: 11000,
@@ -140,11 +156,11 @@ contract EndToEndVerificationTest is Test {
         uint256 rId = manager.createRound(assetId, address(mockOsm), timing, qConfig);
 
         // T0 -> T1: Concurrent execution during the 1-hour OSM window
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 1);
-        _commitAndReveal(rId, op2, LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 2);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, normalDiag, 3);
-        _commitAndReveal(rId, op4, LANE_4_OU, 0, 0, 0, false, normalDiag, 4);
-        _commitAndReveal(rId, op5, LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 5);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 1);
+        _commitAndReveal(rId, op2, OP_ID_2, LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 2);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 3);
+        _commitAndReveal(rId, op4, OP_ID_4, LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 4);
+        _commitAndReveal(rId, op5, OP_ID_5, LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 5);
 
         // Prepare terminal market attestation at window end
         MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
@@ -166,7 +182,7 @@ contract EndToEndVerificationTest is Test {
 
         // Post-T1: Check that NO second OSM delay was added, OSM was never written to
         (uint256 osmPrice,) = mockOsm.readPrice();
-        assertEq(osmPrice, 2500 * WAD); // Pure read-only inspection
+        assertEq(osmPrice, 2500 * WAD);
 
         // Multipli protocol consumes EXACTLY ONE authoritative P_FINAL
         (uint256 finalPrice, IAEGISPriceFeed.OracleStatus status,) = priceRouter.getPrice(assetId);
@@ -174,7 +190,6 @@ contract EndToEndVerificationTest is Test {
         assertEq(uint8(status), uint8(IAEGISPriceFeed.OracleStatus.HEALTHY_CONSENSUS));
 
         // Downstream borrowing evaluated under standard 80% LTV
-        // Collateral: 10 XAU = $25,000. 80% LTV = $20,000 max borrow.
         (bool approved, string memory reason, ) = multipliConsumer.evaluateBorrow(
             assetId,
             10 * WAD,
@@ -205,11 +220,11 @@ contract EndToEndVerificationTest is Test {
         uint256 rId = manager.createRound(assetId, address(mockOsm), timing, qConfig);
 
         // Real market & honest validators agree at true market price: $2500
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 1);
-        _commitAndReveal(rId, op2, LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 2);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, normalDiag, 3);
-        _commitAndReveal(rId, op4, LANE_4_OU, 0, 0, 0, false, normalDiag, 4);
-        _commitAndReveal(rId, op5, LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 5);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 1);
+        _commitAndReveal(rId, op2, OP_ID_2, LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 2);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 3);
+        _commitAndReveal(rId, op4, OP_ID_4, LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 4);
+        _commitAndReveal(rId, op5, OP_ID_5, LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 5);
 
         MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
             assetId: assetId,
@@ -231,8 +246,6 @@ contract EndToEndVerificationTest is Test {
         assertEq(uint8(status), uint8(IAEGISPriceFeed.OracleStatus.SUSPECTED_INCONSISTENCY));
 
         // Multipli consumer automatically applies RESTRICTED_LTV (60%) instead of standard 80%!
-        // Collateral: 10 XAU = $25,000. 60% LTV = $15,000 max borrow.
-        // A requested debt of $18,000 must be REJECTED!
         (bool approved, string memory reason, ) = multipliConsumer.evaluateBorrow(
             assetId,
             10 * WAD,
@@ -271,11 +284,11 @@ contract EndToEndVerificationTest is Test {
         vm.prank(owner);
         uint256 rId = manager.createRound(assetId, address(mockOsm), timing, qConfig);
 
-        _commitAndReveal(rId, op1, LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 1);
-        _commitAndReveal(rId, op2, LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 2);
-        _commitAndReveal(rId, op3, LANE_3_JSD, 0, 0, 0, false, normalDiag, 3);
-        _commitAndReveal(rId, op4, LANE_4_OU, 0, 0, 0, false, normalDiag, 4);
-        _commitAndReveal(rId, op5, LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 5);
+        _commitAndReveal(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 1);
+        _commitAndReveal(rId, op2, OP_ID_2, LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 2);
+        _commitAndReveal(rId, op3, OP_ID_3, LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 3);
+        _commitAndReveal(rId, op4, OP_ID_4, LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 4);
+        _commitAndReveal(rId, op5, OP_ID_5, LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 5);
 
         MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
             assetId: assetId,

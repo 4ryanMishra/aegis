@@ -8,6 +8,7 @@ import {AEGISEvidenceEngine} from "../../src/AEGISEvidenceEngine.sol";
 import {AEGISDecisionEngine} from "../../src/AEGISDecisionEngine.sol";
 import {AEGISPriceRouter} from "../../src/AEGISPriceRouter.sol";
 import {MarketAttestor} from "../../src/MarketAttestor.sol";
+import {AggregatorLib} from "../../src/libraries/AggregatorLib.sol";
 import {MockOSM} from "../mocks/MockOSM.sol";
 
 contract GasBenchmarksTest is Test {
@@ -32,6 +33,7 @@ contract GasBenchmarksTest is Test {
     uint8 constant LANE_5_CUSUM = 5;
 
     address[] operators;
+    bytes32[] operatorIds;
     uint8[] lanes;
 
     AEGISVerificationManager.DiagnosticPayload normalDiag = AEGISVerificationManager.DiagnosticPayload({
@@ -63,17 +65,14 @@ contract GasBenchmarksTest is Test {
         priceRouter.setVerificationManager(address(manager));
         mockOsm = new MockOSM(2500 * WAD);
 
-        // Pre-register 10 validator operators across the 5 lanes
-        // Lane 1: ops 0, 1 (2 operators)
-        // Lane 2: ops 2, 3 (2 operators)
-        // Lane 3: ops 4, 5 (2 operators)
-        // Lane 4: ops 6, 7 (2 operators)
-        // Lane 5: ops 8, 9 (2 operators)
+        // Pre-register 10 validator operators across the 5 lanes with distinct operatorIds
         for (uint256 i = 0; i < 10; i++) {
             address op = vm.addr(0x1000 + i);
+            bytes32 opId = keccak256(abi.encode("OperatorOrg", i));
             uint8 lane = uint8((i / 2) + 1);
-            registry.registerValidator(op, lane, keccak256(abi.encode("Node", i)));
+            registry.registerValidator(opId, op, lane, keccak256(abi.encode("Node", i)));
             operators.push(op);
+            operatorIds.push(opId);
             lanes.push(lane);
         }
         vm.stopPrank();
@@ -82,18 +81,19 @@ contract GasBenchmarksTest is Test {
 
     function _commitAndReveal(
         uint256 rId,
+        bytes32 opId,
         address op,
         uint8 laneId,
         uint256 price,
-        uint256 uLow,
-        uint256 uHigh,
+        uint256 uVal,
+        AggregatorLib.UncertaintyType uType,
         bool isGated,
         AEGISVerificationManager.DiagnosticPayload memory diag,
         uint256 nonce
     ) internal {
         bytes32 evHash = keccak256(abi.encode(op, laneId));
         bytes32 payloadHash = keccak256(
-            abi.encode(laneId, price, uLow, uHigh, isGated, diag, evHash)
+            abi.encode(opId, laneId, price, uVal, uType, isGated, diag, evHash)
         );
         bytes32 commitHash = keccak256(
             abi.encode(block.chainid, address(manager), rId, op, payloadHash, nonce)
@@ -105,7 +105,19 @@ contract GasBenchmarksTest is Test {
 
         vm.warp(11500);
         vm.prank(op);
-        manager.reveal(rId, laneId, price, uLow, uHigh, isGated, diag, evHash, nonce);
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: rId,
+                laneId: laneId,
+                price: price,
+                uncertaintyValue: uVal,
+                uncertaintyType: uType,
+                isGated: isGated,
+                diagPayload: diag,
+                evidenceHash: evHash,
+                nonce: nonce
+            })
+        );
     }
 
     /// @notice Gas Benchmark: Full verification round with 5 validators (1 per lane)
@@ -127,11 +139,11 @@ contract GasBenchmarksTest is Test {
         uint256 rId = manager.createRound(assetId, address(mockOsm), timing, qConfig);
 
         // Submit 5 validators (1 per lane)
-        _commitAndReveal(rId, operators[0], LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 1);
-        _commitAndReveal(rId, operators[2], LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 2);
-        _commitAndReveal(rId, operators[4], LANE_3_JSD, 0, 0, 0, false, normalDiag, 3);
-        _commitAndReveal(rId, operators[6], LANE_4_OU, 0, 0, 0, false, normalDiag, 4);
-        _commitAndReveal(rId, operators[8], LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 5);
+        _commitAndReveal(rId, operatorIds[0], operators[0], LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 1);
+        _commitAndReveal(rId, operatorIds[2], operators[2], LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 2);
+        _commitAndReveal(rId, operatorIds[4], operators[4], LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 3);
+        _commitAndReveal(rId, operatorIds[6], operators[6], LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 4);
+        _commitAndReveal(rId, operatorIds[8], operators[8], LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 5);
 
         // Market attestation
         MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
@@ -171,16 +183,16 @@ contract GasBenchmarksTest is Test {
         uint256 rId = manager.createRound(assetId, address(mockOsm), timing, qConfig);
 
         // 10 validators: 2 per lane
-        _commitAndReveal(rId, operators[0], LANE_1_KALMAN, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 1);
-        _commitAndReveal(rId, operators[1], LANE_1_KALMAN, 2501 * WAD, 2491 * WAD, 2511 * WAD, false, normalDiag, 2);
-        _commitAndReveal(rId, operators[2], LANE_2_HUBER, 2499 * WAD, 2489 * WAD, 2509 * WAD, false, normalDiag, 3);
-        _commitAndReveal(rId, operators[3], LANE_2_HUBER, 2500 * WAD, 2490 * WAD, 2510 * WAD, false, normalDiag, 4);
-        _commitAndReveal(rId, operators[4], LANE_3_JSD, 0, 0, 0, false, normalDiag, 5);
-        _commitAndReveal(rId, operators[5], LANE_3_JSD, 0, 0, 0, false, normalDiag, 6);
-        _commitAndReveal(rId, operators[6], LANE_4_OU, 0, 0, 0, false, normalDiag, 7);
-        _commitAndReveal(rId, operators[7], LANE_4_OU, 0, 0, 0, false, normalDiag, 8);
-        _commitAndReveal(rId, operators[8], LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 9);
-        _commitAndReveal(rId, operators[9], LANE_5_CUSUM, 0, 0, 0, false, normalDiag, 10);
+        _commitAndReveal(rId, operatorIds[0], operators[0], LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 1);
+        _commitAndReveal(rId, operatorIds[1], operators[1], LANE_1_KALMAN, 2501 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 2);
+        _commitAndReveal(rId, operatorIds[2], operators[2], LANE_2_HUBER, 2499 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 3);
+        _commitAndReveal(rId, operatorIds[3], operators[3], LANE_2_HUBER, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, 4);
+        _commitAndReveal(rId, operatorIds[4], operators[4], LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 5);
+        _commitAndReveal(rId, operatorIds[5], operators[5], LANE_3_JSD, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 6);
+        _commitAndReveal(rId, operatorIds[6], operators[6], LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 7);
+        _commitAndReveal(rId, operatorIds[7], operators[7], LANE_4_OU, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 8);
+        _commitAndReveal(rId, operatorIds[8], operators[8], LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 9);
+        _commitAndReveal(rId, operatorIds[9], operators[9], LANE_5_CUSUM, 0, 0, AggregatorLib.UncertaintyType.OTHER_UNSUPPORTED, false, normalDiag, 10);
 
         MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
             assetId: assetId,

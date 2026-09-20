@@ -18,12 +18,21 @@ library AggregatorLib {
     uint256 internal constant MIN_UNCERTAINTY_BPS = 1;     // 0.01%
     uint256 internal constant MAX_UNCERTAINTY_BPS = 1000;  // 10.00%
 
+    enum UncertaintyType {
+        ABSOLUTE_STD,          // Direct standard deviation (sigma)
+        CI95_HALF_WIDTH,       // 95% Gaussian Confidence Interval half-width (CI_half = 1.96 * sigma)
+        EMPIRICAL_DISPERSION,  // Non-parametric spread (MAD or IQR); unsupported for Gaussian variance weighting
+        SOURCE_CONFIDENCE,     // Qualitative source confidence score; unsupported for variance weighting
+        OTHER_UNSUPPORTED      // Uncalibrated / non-standard representation
+    }
+
     struct OperatorPriceSubmission {
-        address operator;
-        uint256 price;           // 18-decimal WAD
-        uint256 uncertaintyLower; // 18-decimal WAD
-        uint256 uncertaintyUpper; // 18-decimal WAD
-        bool isGated;            // Applicable to Lane 1 Kalman
+        bytes32 operatorId;              // Canonical organizational operator identity
+        address operator;                // Signing wallet address
+        uint256 price;                   // 18-decimal WAD price estimate
+        uint256 uncertaintyValue;        // Uncertainty metric (half-width or standard deviation in WAD)
+        UncertaintyType uncertaintyType; // Explicit uncertainty semantic representation
+        bool isGated;                    // Innovation gating status (Lane 1 Kalman)
     }
 
     struct CanonicalLaneEstimate {
@@ -45,8 +54,15 @@ library AggregatorLib {
 
     error EmptySubmissions();
     error ZeroDenominator();
+    error DuplicateOperatorSubmission(bytes32 operatorId);
+    error UnsupportedUncertaintySemantics(UncertaintyType uType);
+    error MixedUncertaintySemantics();
 
     /// @notice Computes Tier 1 Within-Lane Operator Consensus for a single price estimator lane.
+    /// @dev Enforces:
+    /// 1. Exactly one submission per operatorId within the lane.
+    /// 2. Supported and uniform uncertainty semantics across all submissions.
+    /// 3. Conservative dispersion heuristic combining median uncertainty and price IQR.
     /// @param submissions Array of operator submissions for this lane.
     /// @return estimate Canonical lane estimate (price, sigmaLane, gating status).
     function aggregateLaneTier1(
@@ -63,6 +79,28 @@ library AggregatorLib {
             });
         }
 
+        // 1. Enforce unique operatorId within the lane (anti-Sybil / over-influence defense)
+        for (uint256 i = 0; i < n; i++) {
+            bytes32 opId_i = submissions[i].operatorId;
+            for (uint256 j = i + 1; j < n; j++) {
+                if (opId_i != bytes32(0) && opId_i == submissions[j].operatorId) {
+                    revert DuplicateOperatorSubmission(opId_i);
+                }
+            }
+        }
+
+        // 2. Validate uniform, supported uncertainty semantics
+        UncertaintyType baselineType = submissions[0].uncertaintyType;
+        if (baselineType != UncertaintyType.CI95_HALF_WIDTH && baselineType != UncertaintyType.ABSOLUTE_STD) {
+            revert UnsupportedUncertaintySemantics(baselineType);
+        }
+
+        for (uint256 i = 1; i < n; i++) {
+            if (submissions[i].uncertaintyType != baselineType) {
+                revert MixedUncertaintySemantics();
+            }
+        }
+
         uint256[] memory prices = new uint256[](n);
         uint256[] memory sigmas = new uint256[](n);
         uint256 gatedCount = 0;
@@ -73,12 +111,15 @@ library AggregatorLib {
                 gatedCount++;
             }
 
-            // Standard deviation normalized from 95% confidence interval width (3.92 sigma)
-            // sigma_i = (upper - lower) / 3.92 = ((upper - lower) * 100) / 392
-            uint256 ciWidth = submissions[i].uncertaintyUpper > submissions[i].uncertaintyLower
-                ? submissions[i].uncertaintyUpper - submissions[i].uncertaintyLower
-                : 0;
-            uint256 rawSigma = (ciWidth * 100) / 392;
+            // Mathematical standard deviation conversion:
+            // For CI95_HALF_WIDTH: CI_half = 1.96 * sigma => sigma = (half_width * 100) / 196
+            // For ABSOLUTE_STD: sigma is supplied directly as uncertaintyValue
+            uint256 rawSigma;
+            if (baselineType == UncertaintyType.CI95_HALF_WIDTH) {
+                rawSigma = (submissions[i].uncertaintyValue * 100) / 196;
+            } else {
+                rawSigma = submissions[i].uncertaintyValue;
+            }
 
             // Clamp sigma relative to price to prevent zero-division or unbounded variance
             uint256 minSigma = (prices[i] * MIN_UNCERTAINTY_BPS) / BPS_DIVISOR;
@@ -241,9 +282,6 @@ library AggregatorLib {
             // For small sample sizes, return range (max - min) as conservative dispersion
             return sorted[n - 1] - sorted[0];
         }
-        // For n >= 4:
-        // Q1 is median of lower half [0, n/2 - 1]
-        // Q3 is median of upper half [n - n/2, n - 1]
         uint256 halfLen = n / 2;
         uint256[] memory lowerHalf = new uint256[](halfLen);
         uint256[] memory upperHalf = new uint256[](halfLen);
