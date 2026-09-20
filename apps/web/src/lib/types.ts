@@ -112,17 +112,23 @@ export interface OUMetrics {
 
 export interface CUSUMMetrics {
   current_price: number;
-  baseline_mean: number;
-  baseline_std: number;
+  baseline_mean?: number;
+  baseline_std?: number;
+  tick_volatility?: number;
   standardized_increment: number;
+  current_increment?: number;
   s_pos: number;
   s_neg: number;
+  s_plus?: number;
+  s_minus?: number;
   drift_kappa: number;
+  kappa?: number;
   threshold_h: number;
   drift_detected: boolean;
   history_length: number;
   recent_trajectory?: number[];
 }
+
 
 export interface ValidatorObservation {
   validator_id: string;

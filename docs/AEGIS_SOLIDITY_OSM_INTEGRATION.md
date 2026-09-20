@@ -78,16 +78,21 @@ AEGIS (Adaptive Oracle Verification Engine) provides an on-chain/off-chain verif
 3. **$P_{MARKET}$**: An independent terminal market observation attested at the end of the verification window.
 4. **$P_{FINAL}$**: The single, authoritative price output produced by the decision engine for consumption by the protocol through one stable price interface.
 
-### Five Methodology Lanes
+### Five Methodology Lanes & Role Classification
 AEGIS structures validator intelligence into **five methodology lanes, each capable of being operated by multiple independent validator nodes**:
-- **Lane 1 → Recursive 1D Kalman + Mahalanobis Innovation Gating:** Dynamic state tracking over time series with chi-squared innovation gating to filter abrupt transient outliers.
-- **Lane 2 → Huber M-Estimation:** Outlier-resistant robust location estimation transitioning smoothly from squared loss (Gaussian center) to absolute loss (heavy tails).
-- **Lane 3 → Jensen-Shannon Divergence:** Symmetric, bounded information-theoretic divergence measuring structural shifts between empirical market distributions and baseline distributions.
-- **Lane 4 → Ornstein-Uhlenbeck RWA Residual Analysis:** Continuous-time mean-reverting stochastic process modeling spread/residual deviations for stable peg and yield-bearing RWA assets.
-- **Lane 5 → Page CUSUM Sequential Drift Detection:** Sequential change-point detection tracking cumulative positive and negative prediction deviations to detect subtle, persistent regime shifts.
+
+**Price Estimators (Contribute to $P_{DEC}$):**
+- **Lane 1 → Recursive 1D Kalman + Mahalanobis Innovation Gating:** Dynamic state tracking over time series with $\chi^2(1, 0.99) \approx 6.635$ ($\alpha=0.01$) innovation gating to filter abrupt transient outliers.
+- **Lane 2 → Huber M-Estimation via IRLS:** Outlier-resistant robust location estimation transitioning smoothly from squared loss (Gaussian center) to absolute loss (heavy tails) via Iteratively Reweighted Least Squares ($k=1.345$).
+
+**Diagnostic Evidence Lanes (Direct Input to Evidence Engine):**
+- **Lane 3 → Pairwise Jensen-Shannon Divergence:** Symmetric, bounded information-theoretic divergence measuring structural shifts across validator uncertainty distributions over discrete probability grids.
+- **Lane 4 → Ornstein-Uhlenbeck RWA Residual Analysis:** Continuous-time mean-reverting stochastic spread diffusion testing for stable peg and yield-bearing RWA assets relative to redemption/NAV anchors.
+- **Lane 5 → Page CUSUM Sequential Drift Detection:** Sequential change-point detection tracking standardized price increments ($y_k = (P_k - P_{k-1})/\sigma_k$) to detect subtle, persistent directional manipulation.
 
 > [!IMPORTANT]
-> **Prototype / MVP Limitation:** For the initial prototype, one simulated node per methodology lane may be operated to demonstrate end-to-end functionality. However, this is strictly an MVP limitation. The architecture natively decouples methodology definitions from node infrastructure: each lane can be run by an arbitrary number of independent validator operators.
+> **Prototype / MVP Limitation:** For the initial prototype, one simulated node per methodology lane may be operated to demonstrate end-to-end functionality. However, this is strictly an MVP limitation. The architecture natively decouples methodology definitions from node infrastructure: each lane can be run by an arbitrary number of independent validator operators. Multiple independent validator operators are a future production architecture.
+
 
 ---
 
@@ -150,7 +155,7 @@ The boundary between the existing OSM and AEGIS is strictly unidirectional and r
 | Validator Registration & Staking | AEGIS (`ValidatorRegistry`) | Manages authorized nodes, public keys, methodology lane assignment |
 | Verification Round Lifecycle | AEGIS (`AEGISVerificationRound`)| Manages commit, reveal, aggregation, and finalization |
 | Validator Evidence Storage | AEGIS (`AEGISVerificationRound`)| Independent storage mappings keyed by `roundId` |
-| $P_{DEC}$ Aggregation | AEGIS (`AggregatorLib`) | Deterministic cross-validator aggregation (robust location estimation, uncertainty-aware weighting, outlier handling) |
+| $P_{DEC}$ Aggregation | AEGIS (`AggregatorLib`) | Deterministic cross-validator aggregation across eligible price estimators (Lanes 1 & 2); diagnostic lanes feed Evidence Engine directly |
 | $P_{MARKET}$ Attestation | AEGIS (`MarketAttestor`) | Verifies cryptographically signed EIP-712 payload |
 | Evidence & Anomaly Computation | AEGIS (`AEGISEvidenceEngine`) | On-chain relative deviations & anomaly classification |
 | Decision Policy & $P_{FINAL}$ Selection | AEGIS (`AEGISDecisionEngine`) | Evaluates safety rules to emit exactly one price |

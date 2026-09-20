@@ -28,9 +28,12 @@ Price Interface
 Protocol / Ledger
 ```
 
+**Canonical Boundary Rule:**
+> **"AEGIS does not replace the OSM queue and does not insert validator predictions into it. AEGIS consumes the delayed OSM value and verifies it through a separate decentralized evidence round before exposing a final protocol price."**
+
 **Core Terminology Invariant:**
 > "Five methodology lanes, each capable of being operated by multiple independent validator nodes."
-> *(Current MVP simulation: 1 simulated node per lane).*
+> *(Current MVP simulation: 1 simulated node per lane. Multiple independent validator operators are a future architecture).*
 
 **Core Solvency Axiom:**
 > *"AEGIS protects against oracle inconsistency and manipulation; protocol solvency depends on liquidations, volatility, and protocol parameters."*
@@ -73,7 +76,7 @@ To preserve mathematical consistency, AEGIS explicitly differentiates between **
    - **Formulation:** For anchored RWAs, tracks continuous-time spread $S_t = \ln(P_{spot}) - \ln(P_{anchor})$ under mean-reverting OU SDE. Standardized residual $|z_{OU}| \ge 3.5$ flags structural jump candidates. Returns `NOT_APPLICABLE` for non-RWA assets.
 5. **Lane 5 — Page CUSUM Sequential Drift Detection:**
    - **Role:** `SEQUENTIAL_DRIFT_DETECTOR`
-   - **Formulation:** Two-sided accumulators $S_t^+, S_t^-$ with slack $\kappa=0.5$ and decision threshold $h=4.0$. Detects persistent micro-drifts that evade point-in-time threshold checks.
+   - **Formulation:** Standardized price increment $y_k = (P_k - P_{k-1})/\sigma_k$. Two-sided sequential accumulators $S_k^+ = \max(0, S_{k-1}^+ + y_k - \kappa)$, $S_k^- = \max(0, S_{k-1}^- - y_k - \kappa)$ with slack $\kappa=0.5$ and decision threshold $h=4.0$. Detects persistent directional micro-drifts that evade point-in-time threshold checks.
 
 ## 4. Aggregation Layer (P_DEC)
 

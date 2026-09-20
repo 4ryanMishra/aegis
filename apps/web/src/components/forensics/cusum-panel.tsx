@@ -8,9 +8,14 @@ interface CUSUMPanelProps {
 
 export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => {
   const metrics = (validator.intermediate_metrics || {}) as Partial<CUSUMMetrics>;
-  const isDrift = Boolean(metrics.drift_detected) || (metrics.s_pos || 0) >= (metrics.threshold_h || 4.0) || (metrics.s_neg || 0) >= (metrics.threshold_h || 4.0);
-  const trajectory = metrics.recent_trajectory || [0.0, 0.2, 0.4, 0.8, 1.2, 1.8, 2.5, 3.2, metrics.s_pos ?? 0.0];
   const thresholdH = metrics.threshold_h ?? 4.0;
+  const sPlus = metrics.s_pos ?? (metrics as any).s_plus ?? 0.0;
+  const sMinus = metrics.s_neg ?? (metrics as any).s_minus ?? 0.0;
+  const isDrift = Boolean(metrics.drift_detected) || sPlus >= thresholdH || sMinus >= thresholdH;
+  const trajectory = metrics.recent_trajectory || [0.0, 0.2, 0.4, 0.8, 1.2, 1.8, 2.5, 3.2, sPlus];
+  const stepIncrement = metrics.standardized_increment ?? (metrics as any).current_increment ?? 0.0;
+  const tickVol = metrics.tick_volatility ?? metrics.baseline_std ?? 0.35;
+  const kappa = metrics.drift_kappa ?? (metrics as any).kappa ?? 0.5;
 
   return (
     <div className="space-y-4 text-xs">
@@ -34,7 +39,7 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
         <div className="text-right font-mono">
           <div className="text-[10px] opacity-75">Upward Accumulator S⁺</div>
           <div className={`text-sm font-bold tnum ${isDrift ? 'text-amber-800' : 'text-slate-900'}`}>
-            {(metrics.s_pos ?? 0.0).toFixed(2)} / {thresholdH.toFixed(1)}
+            {sPlus.toFixed(2)} / {thresholdH.toFixed(1)}
           </div>
         </div>
       </div>
@@ -42,21 +47,21 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
       {/* Accumulator Diagnostics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
-          <div className="text-[10px] text-slate-500 font-mono">Baseline Mean μ₀</div>
+          <div className="text-[10px] text-slate-500 font-mono">Tick Volatility σ</div>
           <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-            ${(metrics.baseline_mean ?? 95.00).toFixed(2)}
+            ${tickVol.toFixed(4)}
           </div>
         </div>
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
-          <div className="text-[10px] text-slate-500 font-mono">Baseline Std σ₀</div>
+          <div className="text-[10px] text-slate-500 font-mono">Step Increment y_k</div>
           <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-            ${(metrics.baseline_std ?? 0.35).toFixed(2)}
+            {stepIncrement >= 0 ? '+' : ''}{stepIncrement.toFixed(2)} σ
           </div>
         </div>
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
           <div className="text-[10px] text-slate-500 font-mono">Drift Allowance κ</div>
           <div className="font-mono font-bold text-slate-900 mt-0.5 tnum">
-            {(metrics.drift_kappa ?? 0.5).toFixed(2)} σ
+            {kappa.toFixed(2)} σ
           </div>
         </div>
         <div className="p-2.5 bg-surfaceSubtle rounded border border-borderHairline">
@@ -146,7 +151,7 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
         <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-500">
           <span>Window Start (t-History)</span>
           <span className={isDrift ? 'text-amber-800 font-bold' : 'text-slate-700 font-bold'}>
-            Current S⁺ = {(metrics.s_pos ?? 0.0).toFixed(2)} ({isDrift ? 'THRESHOLD BREACHED' : 'SUB-THRESHOLD'})
+            Current S⁺ = {sPlus.toFixed(2)} ({isDrift ? 'THRESHOLD BREACHED' : 'SUB-THRESHOLD'})
           </span>
           <span>Observation T(now)</span>
         </div>
@@ -157,7 +162,7 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
         <div>
           <div className="text-[10px] uppercase font-mono text-slate-500">Diagnostic Role: Sequential Drift Detector</div>
           <div className="text-sm font-mono font-bold text-slate-900 mt-0.5 tnum">
-            {`S⁺ = ${(metrics.s_pos ?? 0.0).toFixed(2)} (Threshold h = ${thresholdH.toFixed(1)})`}
+            {`S⁺ = ${sPlus.toFixed(2)} (Threshold h = ${thresholdH.toFixed(1)})`}
           </div>
           <div className="text-[10px] text-slate-400 font-mono mt-0.5">
             Lane 5 does not output a spot price to P_DEC; feeds Evidence Engine directly.
@@ -177,7 +182,7 @@ export const CUSUMForensicPanel: React.FC<CUSUMPanelProps> = ({ validator }) => 
           <Info className="w-3 h-3 text-slate-500" />
           Lane 5 Security Role & Mathematical Bound:
         </div>
-        Detects persistent small-magnitude price drift (stealth manipulation). Single-tick deviation filters miss insidious +0.2% tick creeping, but Page CUSUM accumulates standardized residuals over time: S⁺ = max(0, S⁺_{'{t-1}'} + z_t - κ), triggering an early alarm when persistent bias crosses h=4.0.
+        Detects persistent small-magnitude price drift (stealth manipulation). Single-tick deviation filters miss insidious +0.2% tick creeping, but Page CUSUM accumulates standardized price increments over time: S⁺ = max(0, S⁺_{'{k-1}'} + y_k - κ) with y_k = (P_k - P_{'{k-1}'}) / σ_k, triggering an early alarm when persistent directional increments cross h=4.0.
       </div>
     </div>
   );

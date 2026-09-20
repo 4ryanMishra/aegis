@@ -30,6 +30,9 @@ Price Interface
 Protocol / Ledger
 ```
 
+> **Canonical Boundary Rule:**  
+> **"AEGIS does not replace the OSM queue and does not insert validator predictions into it. AEGIS consumes the delayed OSM value and verifies it through a separate decentralized evidence round before exposing a final protocol price."**
+
 ### Core Oracle Values
 - `P_OSM`: Delayed baseline oracle value exposed by the existing OSM after its scheduled delay buffer.
 - `P_DEC`: Aggregated price reference product deterministically computed from eligible price-estimating validator lanes (uncertainty-weighted median blend of Lanes 1 & 2):
@@ -164,17 +167,17 @@ To preserve mathematical coherence, AEGIS explicitly differentiates between **Pr
 - **Methodology Role:** `SEQUENTIAL_DRIFT_DETECTOR` (Diagnostic lane; outputs sequential cumulative drift statistics directly to the Evidence Engine).
 - **Methodology Name:** Page Cumulative Sum (CUSUM) Sequential Quality Control Filter.
 - **Mathematical Foundation:**
-  - Standardized increment relative to in-control baseline $(\mu_0, \sigma_0)$:
-    $$z_t = \frac{P_t - \mu_0}{\sigma_0}$$
+  - Standardized price increment relative to baseline tick volatility $\sigma_k$:
+    $$y_k = \frac{P_k - P_{k-1}}{\sigma_k}$$
   - Two-sided sequential accumulators with drift allowance $\kappa = 0.5$:
-    $$S_t^+ = \max(0, S_{t-1}^+ + z_t - \kappa)$$
-    $$S_t^- = \max(0, S_{t-1}^- - z_t - \kappa)$$
+    $$S_k^+ = \max(0, S_{k-1}^+ + y_k - \kappa)$$
+    $$S_k^- = \max(0, S_{k-1}^- - y_k - \kappa)$$
   - Decision threshold $h = 4.0$:
-    $$\text{If } S_t^+ \ge h \text{ or } S_t^- \ge h \implies \text{Emit persistent drift alert}$$
-- **Concrete Inputs:** Sequential price series $\{P_t\}$, in-control mean $\mu_0$, standard deviation $\sigma_0$, allowance parameter $\kappa$, decision threshold $h$.
-- **Output Format:** Accumulator values $S_t^+, S_t^-$, standardized increment $z_t$, sequential drift alarm status (`PERSISTENT_DRIFT_ALERT` vs `BASELINE_STATIONARY`), accumulator history trajectory, reason code. Does not output an eligible price estimate for $P_{DEC}$.
+    $$\text{If } S_k^+ \ge h \text{ or } S_k^- \ge h \implies \text{Emit persistent drift alert}$$
+- **Concrete Inputs:** Sequential price series $\{P_k\}$, baseline tick volatility $\sigma_k$, allowance parameter $\kappa$, decision threshold $h$.
+- **Output Format:** Accumulator values $S_k^+, S_k^-$, standardized increment $y_k$, sequential drift alarm status (`PERSISTENT_DRIFT_ALERT` vs `BASELINE_STATIONARY`), accumulator history trajectory, reason code. Does not output an eligible price estimate for $P_{DEC}$.
 - **Security Role:** Detects persistent micro-drifts ($+0.25\%$ per tick) that never breach single-tick deviation thresholds but cumulatively subvert protocol collateral solvency.
-- **Known Failure Modes / Limitations:** Requires stationary baseline calibration $(\mu_0, \sigma_0)$; in trending structural bull/bear markets, requires periodic baseline recentering to avoid false drift alarms.
+- **Known Failure Modes / Limitations:** Requires calibrated baseline tick volatility $\sigma_k$; in trending structural bull/bear markets, requires periodic baseline recentering to avoid false drift alarms.
 
 ---
 

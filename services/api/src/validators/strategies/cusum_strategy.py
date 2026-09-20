@@ -46,10 +46,10 @@ class CUSUMStrategy(ValidatorStrategy):
         base_vol = p_base * 0.003  # 0.3% baseline volatility
 
         if context.scenario_type == "SLOW_DRIFT":
-            # Subtle cumulative upward drift (+0.25% per step)
-            # Individual steps pass single-tick threshold, but CUSUM accumulates and trips
+            # Subtle cumulative upward drift (+0.4% per step)
+            # Individual steps pass single-tick threshold, but CUSUM accumulates standardized increments and trips
             series = [
-                round(p_base + (i * 0.25 * base_vol / 0.3) + (((hash(str(i) + str(context.seed)) % 7) - 3) / 20.0), 2)
+                round(p_base + (i * 0.42 * base_vol / 0.3) + (((hash(str(i) + str(context.seed)) % 5) - 2) / 30.0), 2)
                 for i in range(steps)
             ]
         elif context.scenario_type == "FLASH_SPIKE":
@@ -74,12 +74,20 @@ class CUSUMStrategy(ValidatorStrategy):
 
         intermediate = {
             "current_increment": res.current_increment,
+            "standardized_increment": res.current_increment,
             "s_plus": res.s_plus,
             "s_minus": res.s_minus,
+            "s_pos": res.s_plus,
+            "s_neg": res.s_minus,
             "kappa": res.kappa,
+            "drift_kappa": res.kappa,
             "threshold_h": res.threshold_h,
+            "tick_volatility": res.tick_volatility,
             "trip_state": res.trip_state,
             "direction": res.direction,
+            "drift_detected": res.trip_state in ("TRIP", "DRIFT"),
+            "history_length": len(res.history_series),
+            "recent_trajectory": [h.s_plus for h in res.history_series],
             "history_series": [h.model_dump() for h in res.history_series],
         }
 
@@ -88,9 +96,15 @@ class CUSUMStrategy(ValidatorStrategy):
             "direction": res.direction,
             "s_plus": res.s_plus,
             "s_minus": res.s_minus,
+            "s_pos": res.s_plus,
+            "s_neg": res.s_minus,
             "threshold_h": res.threshold_h,
             "kappa": res.kappa,
+            "drift_kappa": res.kappa,
+            "tick_volatility": res.tick_volatility,
             "current_increment": res.current_increment,
+            "standardized_increment": res.current_increment,
+            "drift_detected": res.trip_state in ("TRIP", "DRIFT"),
             "latest_price_hint": res.estimated_price,
             "decision": res.decision,
         }

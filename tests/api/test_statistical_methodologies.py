@@ -181,10 +181,13 @@ def test_cusum_stationary_series():
 
 
 def test_cusum_positive_drift_trips():
-    """Persistent upward increments accumulate and trip threshold."""
+    """Persistent upward price increments accumulate and trip threshold."""
     cusum = PageCUSUM(kappa=0.5, threshold_h=3.0)
-    # Consecutive upward steps: y_k = (P_k - 100) / 0.5 = 2.0 per step
-    # S_plus increases by (2.0 - 0.5) = 1.5 per step -> trips in 2-3 steps
+    # Consecutive upward steps: y_k = (P_k - P_{k-1}) / sigma
+    # Step 1: (101 - 100) / 0.5 = 2.0 -> S+ = 1.5
+    # Step 2: (101.5 - 101) / 0.5 = 1.0 -> S+ = 2.0
+    # Step 3: (102 - 101.5) / 0.5 = 1.0 -> S+ = 2.5
+    # Step 4: (102.5 - 102) / 0.5 = 1.0 -> S+ = 3.0 (trips h=3.0)
     prices = [100.0, 101.0, 101.5, 102.0, 102.5]
     res = cusum.evaluate_series(prices, baseline_price=100.0, baseline_volatility=0.5)
     assert res.trip_state == "TRIP"
@@ -192,6 +195,40 @@ def test_cusum_positive_drift_trips():
     assert res.reason_code == "CUSUM_ACCUMULATOR_TRIPPED"
     assert res.direction == "POSITIVE_DRIFT"
     assert res.s_plus >= 3.0
+
+
+def test_cusum_exact_standardized_price_increment_formula():
+    """
+    Regression test proving Option A: Standardized Price Increment formulation:
+        y_k = (P_k - P_{k-1}) / sigma_k
+        S_k^+ = max(0, S_{k-1}^+ + y_k - kappa)
+        S_k^- = max(0, S_{k-1}^- - y_k - kappa)
+    """
+    cusum = PageCUSUM(kappa=0.5, threshold_h=4.0)
+    # 4 prices: 100.0, 101.0, 101.5, 102.2
+    # baseline_price = 100.0, sigma = 0.5
+    # Step 0: P_0 = 100.0, P_{prev} = 100.0 -> y_0 = (100 - 100)/0.5 = 0.0 -> S_0^+ = max(0, 0 + 0 - 0.5) = 0.0
+    # Step 1: P_1 = 101.0, P_0 = 100.0 -> y_1 = (101 - 100)/0.5 = 2.0 -> S_1^+ = max(0, 0 + 2.0 - 0.5) = 1.5
+    # Step 2: P_2 = 101.5, P_1 = 101.0 -> y_2 = (101.5 - 101.0)/0.5 = 1.0 -> S_2^+ = max(0, 1.5 + 1.0 - 0.5) = 2.0
+    # Step 3: P_3 = 102.2, P_2 = 101.5 -> y_3 = (102.2 - 101.5)/0.5 = 1.4 -> S_3^+ = max(0, 2.0 + 1.4 - 0.5) = 2.9
+    prices = [100.0, 101.0, 101.5, 102.2]
+    res = cusum.evaluate_series(prices, baseline_price=100.0, baseline_volatility=0.5)
+
+    assert len(res.history_series) == 4
+    h = res.history_series
+    assert h[0].standardized_increment == pytest.approx(0.0, abs=1e-4)
+    assert h[0].s_plus == pytest.approx(0.0, abs=1e-4)
+
+    assert h[1].standardized_increment == pytest.approx(2.0, abs=1e-4)
+    assert h[1].s_plus == pytest.approx(1.5, abs=1e-4)
+
+    assert h[2].standardized_increment == pytest.approx(1.0, abs=1e-4)
+    assert h[2].s_plus == pytest.approx(2.0, abs=1e-4)
+
+    assert h[3].standardized_increment == pytest.approx(1.4, abs=1e-4)
+    assert h[3].s_plus == pytest.approx(2.9, abs=1e-4)
+    assert res.s_plus == pytest.approx(2.9, abs=1e-4)
+
 
 
 # ==============================================================================

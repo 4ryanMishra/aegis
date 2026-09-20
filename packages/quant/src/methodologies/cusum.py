@@ -2,9 +2,11 @@
 Methodology Lane 5: Page CUSUM Sequential Drift Detection.
 Detects persistent directional drift under a specified calibrated baseline process.
 
-Mathematical Form:
-S_plus(k) = max(0, S_plus(k-1) + y_k - kappa)
-S_minus(k) = max(0, S_minus(k-1) - y_k - kappa)
+Canonical Formulation (Option A — Standardized Price Increment):
+    y_k = (P_k - P_{k-1}) / sigma_k
+with sequential two-sided accumulators:
+    S_k^+ = max(0, S_{k-1}^+ + y_k - kappa)
+    S_k^- = max(0, S_{k-1}^- - y_k - kappa)
 
 Claims Policy:
 Do NOT claim CUSUM eliminates manipulation.
@@ -31,8 +33,11 @@ class CUSUMResult(BaseModel):
     current_increment: float
     s_plus: float
     s_minus: float
+    s_pos: float = Field(default=0.0, description="Alias for s_plus for frontend compatibility")
+    s_neg: float = Field(default=0.0, description="Alias for s_minus for frontend compatibility")
     kappa: float
     threshold_h: float
+    tick_volatility: float = Field(default=0.0, description="Baseline tick volatility sigma")
     trip_state: str  # NORMAL, DRIFT, TRIP, RECOVERY
     direction: str   # POSITIVE_DRIFT, NEGATIVE_DRIFT, STATIONARY
     decision: str
@@ -47,6 +52,10 @@ class CUSUMResult(BaseModel):
 class PageCUSUM:
     """
     Deterministic Two-Sided Page CUSUM Sequential Drift Detector.
+    Tracks standardized step-by-step price increments:
+        y_k = (P_k - P_{k-1}) / sigma_k
+        S_k^+ = max(0, S_{k-1}^+ + y_k - kappa)
+        S_k^- = max(0, S_{k-1}^- - y_k - kappa)
     """
 
     def __init__(
@@ -68,23 +77,27 @@ class PageCUSUM:
 
         n = len(prices)
         ref_price = float(baseline_price if baseline_price is not None else prices[0])
-        
-        # Estimate or use provided baseline sigma
+
+        # Estimate or use provided baseline tick volatility sigma
         if baseline_volatility is not None and baseline_volatility > 0.0:
             sigma = float(baseline_volatility)
-        elif n >= 5:
-            # Empirical standard deviation
-            sigma = max(float(np.std(prices)), 1e-4)
+        elif n >= 3:
+            # Empirical standard deviation of first differences
+            increments = [float(prices[i]) - float(prices[i - 1]) for i in range(1, n)]
+            sigma = max(float(np.std(increments)), 1e-4)
         else:
             sigma = max(ref_price * 0.005, 1e-4)
 
         s_plus = 0.0
         s_minus = 0.0
         history: List[CUSUMHistoryPoint] = []
+        prev_p = ref_price
 
         for k, p in enumerate(prices):
-            # Standardized increment: y_k = (P_k - P_ref) / sigma
-            y_k = (float(p) - ref_price) / sigma
+            curr_p = float(p)
+            # Standardized price increment: y_k = (P_k - P_{k-1}) / sigma
+            y_k = (curr_p - prev_p) / sigma
+            prev_p = curr_p
 
             s_plus = max(0.0, s_plus + y_k - self.kappa)
             s_minus = max(0.0, s_minus - y_k - self.kappa)
@@ -100,7 +113,7 @@ class PageCUSUM:
             history.append(
                 CUSUMHistoryPoint(
                     step=k,
-                    price=round(float(p), 4),
+                    price=round(curr_p, 4),
                     standardized_increment=round(float(y_k), 4),
                     s_plus=round(float(s_plus), 4),
                     s_minus=round(float(s_minus), 4),
@@ -111,7 +124,7 @@ class PageCUSUM:
 
         # Final state evaluation
         latest_price = float(prices[-1])
-        latest_y = (latest_price - ref_price) / sigma
+        latest_y = history[-1].standardized_increment if history else 0.0
         max_s = max(s_plus, s_minus)
 
         if s_plus > s_minus:
@@ -146,8 +159,11 @@ class PageCUSUM:
             current_increment=round(float(latest_y), 4),
             s_plus=round(float(s_plus), 4),
             s_minus=round(float(s_minus), 4),
+            s_pos=round(float(s_plus), 4),
+            s_neg=round(float(s_minus), 4),
             kappa=round(self.kappa, 4),
             threshold_h=round(self.threshold_h, 4),
+            tick_volatility=round(float(sigma), 4),
             trip_state=trip_state,
             direction=direction,
             decision=decision,
@@ -158,3 +174,4 @@ class PageCUSUM:
             uncertainty_upper=round(upper_bound, 4),
             anomaly_score=round(anomaly_score, 4),
         )
+

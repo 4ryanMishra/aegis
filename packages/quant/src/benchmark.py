@@ -1,6 +1,14 @@
 """
 Multi-Validator Methodology Benchmark Runner.
 Executes standardized comparative evaluations across candidate strategies on identical datasets.
+
+Evaluation Metric Taxonomy:
+- Price Estimators (Kalman, Huber, Baselines): Evaluated via sequential forecast accuracy:
+  Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), Mean Absolute Percentage Error (MAPE),
+  Directional Accuracy, and Prediction Interval Coverage Probability.
+- Diagnostic Anomaly Detectors (JSD, OU, CUSUM): Evaluated via event classification:
+  Precision, Recall, False Positive Rate (FPR), Detection Latency, and Average Run Length (ARL).
+  Diagnostic metrics are evaluated against labeled injection ground-truth, not forecast MAE.
 """
 
 from typing import List, Dict, Any, Optional
@@ -13,9 +21,12 @@ from .models import MethodologyResult, BenchmarkComparison
 
 class ValidatorBenchmarkRunner:
     """
-    Orchestrates comparative benchmarking across multiple validator methodologies.
+    Orchestrates comparative benchmarking across candidate validator price estimators.
     Enforces that all candidate strategies are evaluated on the identical historical split.
+    Note: Evaluates forecast accuracy on price-estimating lanes. Diagnostic lanes are evaluated
+    via separate detection-latency and classification benchmarks.
     """
+
 
     def __init__(
         self,
