@@ -1,11 +1,17 @@
-from .mean_reversion import MeanReversionStrategy
-from .momentum_trend import MomentumTrendStrategy
-from .cross_dex_vwap import CrossDexVWAPStrategy
-from .robust_dispersion import RobustDispersionStrategy
+"""
+AEGIS Five Methodology Lane Strategies.
+"""
+
+from .kalman_strategy import KalmanStrategy
+from .huber_strategy import HuberStrategy
+from .jsd_strategy import JSDStrategy
+from .ou_strategy import OUStrategy
+from .cusum_strategy import CUSUMStrategy
 
 __all__ = [
-    "MeanReversionStrategy",
-    "MomentumTrendStrategy",
-    "CrossDexVWAPStrategy",
-    "RobustDispersionStrategy",
+    "KalmanStrategy",
+    "HuberStrategy",
+    "JSDStrategy",
+    "OUStrategy",
+    "CUSUMStrategy",
 ]

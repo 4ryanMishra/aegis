@@ -440,9 +440,9 @@ A common architectural error in oracle designs is pretending that complex mathem
 | **Raw CEX/DEX Data Ingestion** | **OFF-CHAIN** | Smart contracts cannot make HTTP calls. Off-chain nodes poll external market venues. |
 | **Historical Backtesting** | **OFF-CHAIN** | Benchmark datasets, simulation replays, and parameter sweeps execute off-chain. |
 | **Commitment Generation & Salt** | **OFF-CHAIN** | Secrets (`nonce`) must be generated privately off-chain before being committed on-chain. |
-| **Commitment Storage & Hash Check** | **ON-CHAIN** | Guarantees non-repudiation, tamper-resistance, and deterministic ordering. |
+| **Commitment Storage & Hash Check** | **ON-CHAIN** | Enforces non-repudiation, tamper-resistance, and deterministic ordering. |
 | **Cryptographic Reveal Verification** | **ON-CHAIN** | Verifies revealed data matches the prior commitment hash in EVM. |
-| **Validator Quorum Validation** | **ON-CHAIN** | Guarantees minimum threshold before consensus can be computed. |
+| **Validator Quorum Validation** | **ON-CHAIN** | Enforces minimum threshold before consensus can be computed. |
 | **$P_{DEC}$ Consensus Aggregation** | **ON-CHAIN** | Deterministic cross-validator aggregation across revealed lane submissions. Computational overhead is bounded and to be benchmarked during Solidity implementation. |
 | **$P_{MARKET}$ Signature Attestation** | **ON-CHAIN** | `ecrecover` validates that an authorized attestor witnessed the terminal market price. |
 | **$P_{OSM}$ Baseline Fetching** | **ON-CHAIN** | Direct contract call to OSM read interface. |

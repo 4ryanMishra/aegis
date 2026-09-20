@@ -14,7 +14,7 @@ from .models import MethodologyResult, BenchmarkComparison
 class ValidatorBenchmarkRunner:
     """
     Orchestrates comparative benchmarking across multiple validator methodologies.
-    Guarantees that all candidate strategies are evaluated on the identical historical split.
+    Enforces that all candidate strategies are evaluated on the identical historical split.
     """
 
     def __init__(

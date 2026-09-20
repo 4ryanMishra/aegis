@@ -17,4 +17,4 @@
 Repeat with all values close together. The system should show that no override is necessary.
 
 ## Judge-facing claim
-The demo proves the **mechanism**, not a production guarantee: a delayed oracle value can be evaluated against independently produced evidence during the delay window before protocol use.
+The demo demonstrates the **mechanism**, not production finality: a delayed oracle value can be evaluated against independently produced evidence during the delay window before protocol use.

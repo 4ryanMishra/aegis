@@ -7,26 +7,26 @@ interface VerificationTimelineProps {
 }
 
 export const VerificationTimeline: React.FC<VerificationTimelineProps> = ({ scenario }) => {
-  const { window, validators } = scenario;
+  const { window } = scenario;
   const elapsedMinutes = Math.round(window.elapsed_seconds / 60);
   const progressPercent = Math.min(100, Math.round((window.elapsed_seconds / window.duration_seconds) * 100));
 
   const milestones = [
-    { minute: 0, label: 'T0: OSM Value Queued', desc: `$${scenario.p_osm.value.toFixed(2)} arrival` },
-    { minute: 15, label: 'T+15m: Validator 1 Inflow', desc: 'Mean-reversion estimate' },
-    { minute: 30, label: 'T+30m: Validator 2 Inflow', desc: 'Momentum indicator' },
-    { minute: 40, label: 'T+40m: Validator 3 Inflow', desc: 'Cross-DEX VWAP' },
-    { minute: 45, label: 'T+45m: Quorum Reached', desc: 'P_DEC median locked' },
-    { minute: 60, label: 'T1: Final Valuation', desc: 'Market observed & settled' },
+    { minute: 0, label: 'T0: P_OSM Arrival', desc: `Queued $${scenario.p_osm.value.toFixed(2)}` },
+    { minute: 15, label: 'T+15m: 5 Lanes Compute', desc: 'Kalman, Huber, JSD, OU, CUSUM' },
+    { minute: 30, label: 'T+30m: Commit/Reveal', desc: 'Evidence ingestion & hash match' },
+    { minute: 45, label: 'T+45m: P_DEC Aggregation', desc: 'Uncertainty-weighted median' },
+    { minute: 50, label: 'T+50m: Evidence Engine', desc: 'Triangulation & conflict check' },
+    { minute: 60, label: 'T1: Decision & P_FINAL', desc: 'Protocol interface updated' },
   ];
 
   return (
     <div className="bg-surface border border-borderHairline rounded p-4 shadow-card">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
         <div className="flex items-center space-x-2">
           <Clock className="w-4 h-4 text-slate-500" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-            1-Hour Verification Window Timeline
+            Canonical Verification Window Progression (60-Minute Lifecycle)
           </span>
         </div>
         <div className="flex items-center space-x-3 text-xs font-mono">
@@ -43,7 +43,7 @@ export const VerificationTimeline: React.FC<VerificationTimelineProps> = ({ scen
       </div>
 
       {/* Progress Bar */}
-      <div className="relative w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-6">
+      <div className="relative w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-5">
         <div 
           className="h-full bg-slate-900 transition-all duration-300"
           style={{ width: `${progressPercent}%` }}
@@ -59,28 +59,28 @@ export const VerificationTimeline: React.FC<VerificationTimelineProps> = ({ scen
           return (
             <div 
               key={m.minute}
-              className={`p-2 rounded border text-left transition ${
+              className={`p-2.5 rounded border text-left transition ${
                 isCurrent
-                  ? 'border-blue-400 bg-blue-50/40 shadow-sm'
+                  ? 'border-blue-400 bg-blue-50/40 shadow-xs'
                   : isPassed
                   ? 'border-slate-200 bg-slate-50/50 text-slate-800'
                   : 'border-dashed border-slate-200 text-slate-400 bg-transparent'
               }`}
             >
-              <div className="flex items-center space-x-1 mb-1">
+              <div className="flex items-center space-x-1.5 mb-1">
                 {isPassed ? (
-                  <CheckCircle2 className={`w-3 h-3 ${isCurrent ? 'text-blue-600' : 'text-slate-700'}`} />
+                  <CheckCircle2 className={`w-3.5 h-3.5 ${isCurrent ? 'text-blue-600' : 'text-slate-700'}`} />
                 ) : (
-                  <Circle className="w-3 h-3 text-slate-300" />
+                  <Circle className="w-3.5 h-3.5 text-slate-300" />
                 )}
                 <span className="text-[11px] font-bold font-mono">
                   {m.minute === 0 ? 'T0' : m.minute === 60 ? 'T1' : `+${m.minute}m`}
                 </span>
               </div>
-              <div className="text-[11px] font-medium leading-tight truncate" title={m.label}>
+              <div className="text-[11px] font-semibold leading-tight text-slate-900 truncate" title={m.label}>
                 {m.label.split(': ')[1] || m.label}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+              <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={m.desc}>
                 {m.desc}
               </div>
             </div>

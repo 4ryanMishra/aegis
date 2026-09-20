@@ -30,7 +30,7 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({ scenario }) =>
       isMarket: false,
     },
     ...validators.map((v) => ({
-      name: v.validator_id,
+      name: v.lane_id ? v.lane_id.toUpperCase() : v.validator_id,
       price: v.estimated_price,
       lower: v.uncertainty_lower,
       upper: v.uncertainty_upper,

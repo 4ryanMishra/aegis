@@ -21,5 +21,5 @@ def test_coordinator_scenario_run():
     assert result.p_osm.value == 100.0
     assert result.p_market.value == 95.0
     assert result.p_dec.value is not None
-    assert len(result.validators) == 4
+    assert len(result.validators) == 5
     assert result.collateral.difference > 0

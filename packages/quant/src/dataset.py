@@ -75,7 +75,7 @@ class HistoricalReplayDataset:
     def get_observations_up_to(self, timestamp: int) -> List[HistoricalMarketObservation]:
         """
         Returns all observations strictly up to and including timestamp.
-        Guarantees that no future data (t > timestamp) is returned.
+        Enforces that no future data (t > timestamp) is returned.
         """
         idx = np.searchsorted(self._timestamps, timestamp, side="right")
         return self.observations[:idx]

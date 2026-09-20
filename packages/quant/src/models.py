@@ -99,6 +99,94 @@ class InputWindow(BaseModel):
     sampling_interval_sec: int = Field(default=60, description="Step frequency in seconds")
 
 
+class ValidatorResult(BaseModel):
+    """
+    Canonical ValidatorResult Model (Phase 4A Task 2).
+    Carries complete forensic intermediate evidence explaining HOW a methodology
+    reached its conclusion.
+    """
+    validator_id: str = Field(..., description="Unique validator node identifier")
+    methodology: str = Field(default="KALMAN_1D", description="Machine identifier (KALMAN_1D, HUBER_IRLS, JSD, OU_RESIDUAL, CUSUM)")
+    methodology_name: str = Field(default="Methodology Lane", description="Human-readable methodology name")
+    methodology_version: str = Field(default="1.0.0", description="Methodology version or code hash")
+    lane_id: int = Field(default=1, ge=1, le=5, description="Methodology lane number (1-5)")
+    operator_id: str = Field(default="operator_node_1", description="Independent operator identifier")
+    timestamp: int = Field(default=0, description="Observation timestamp within verification window")
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_legacy_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "methodology" not in data and "strategy_id" in data:
+                data["methodology"] = data["strategy_id"]
+            if "methodology_name" not in data and "strategy_name" in data:
+                data["methodology_name"] = data["strategy_name"]
+            if "timestamp" not in data and "observed_at" in data:
+                data["timestamp"] = data["observed_at"]
+            if "input_sources" not in data and "source_ids" in data:
+                data["input_sources"] = data["source_ids"]
+        return data
+
+    input_sources: List[str] = Field(default_factory=list, description="Feeds/sources consumed")
+    input_values: Dict[str, Any] = Field(default_factory=dict, description="Input values summary")
+
+    estimated_price: float = Field(..., description="Estimated reference/forecast price")
+    uncertainty_lower: float = Field(..., description="Lower uncertainty bound")
+    uncertainty_upper: float = Field(..., description="Upper uncertainty bound")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Methodology confidence / quality representation")
+
+    intermediate_metrics: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Forensic intermediate metrics explaining how methodology reached conclusion"
+    )
+
+    anomaly_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Normalized anomaly heuristic [0, 1]")
+    decision: str = Field(default="ACCEPTED", description="ACCEPTED, GATED, OUTLIER, DRIFTING, TRIPPED, NOT_APPLICABLE")
+    reason_code: str = Field(default="MODEL_CONSISTENT", description="Machine-readable diagnostic reason code")
+
+    provenance: Dict[str, Any] = Field(default_factory=dict, description="Data provenance & audit trail")
+    computation_metadata: Dict[str, Any] = Field(default_factory=dict, description="Runtime execution metadata")
+    status: str = Field(default="SIMULATED")
+    input_window: Optional[InputWindow] = Field(default=None)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def strategy_id(self) -> str:
+        return self.methodology.lower()
+
+    @property
+    def strategy_name(self) -> str:
+        return self.methodology_name
+
+    @property
+    def observed_at(self) -> int:
+        return self.timestamp
+
+    @property
+    def source_ids(self) -> List[str]:
+        return self.input_sources
+
+    @property
+    def method_version(self) -> str:
+        return self.methodology_version
+
+    @property
+    def point_estimate(self) -> float:
+        return self.estimated_price
+
+    @property
+    def lower_bound(self) -> float:
+        return self.uncertainty_lower
+
+    @property
+    def upper_bound(self) -> float:
+        return self.uncertainty_upper
+
+    @property
+    def method_id(self) -> str:
+        return self.methodology
+
+
 class ValidatorPrediction(BaseModel):
     """
     Standardized prediction output from an independent validator methodology.

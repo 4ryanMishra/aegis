@@ -13,7 +13,7 @@ import { ProvenanceDrawer } from '@/components/provenance-drawer';
 
 export default function RiskTerminalPage() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([]);
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scen_gold_osm_spike_01');
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scen_normal_consensus');
   const [currentScenario, setCurrentScenario] = useState<ScenarioRecord | null>(null);
   const [ltv, setLtv] = useState<number>(0.60);
   const [stepSeconds, setStepSeconds] = useState<number>(3600);

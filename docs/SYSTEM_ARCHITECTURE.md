@@ -1,49 +1,53 @@
 # AEGIS MVP System Architecture
 
-## 1. Core idea
-Use Multipli's one-hour delay as a verification/computation window.
+## 1. Core Canonical Architecture
+
+AEGIS repurposes a delayed oracle window into a structured multi-lane statistical verification process:
 
 ```text
-P_OSM arrives at T0
-      |
-      +--------------------- verification window ---------------------+
-      |                                                               |
-      v                                                               v
-Validator network                                         Independent market observer
-(3–4 logical validators initially)                         P_MARKET at T1
-      |
-      v
-P_DEC aggregation
-      |
-      +------------------------+
-                               v
-                     Evidence / anomaly engine
-                               |
-                 +-------------+-------------+
-                 |                           |
-           oracle consistency          manipulation signal
-                 |                           |
-                 +-------------+-------------+
-                               v
-                    valuation / action policy
-                               |
-                 +-------------+-------------+
-                 |                           |
-              UI demo                 mock OSM/adapter
+Existing OSM
+    ↓
+P_OSM
+    ↓
+AEGIS Verification Window
+    ↓
+Five Methodology Lanes
+    ↓
+Validator Evidence
+    ↓
+P_DEC + P_MARKET + P_OSM
+    ↓
+Evidence Engine
+    ↓
+Decision Engine
+    ↓
+P_FINAL
+    ↓
+Price Interface
+    ↓
+Protocol / Ledger
 ```
 
-## 2. Value definitions
+**Core Terminology Invariant:**
+> "Five methodology lanes, each capable of being operated by multiple independent validator nodes."
+> *(Current MVP simulation: 1 simulated node per lane).*
+
+## 2. Value Definitions
 
 ### P_OSM
-The delayed value that the existing Multipli OSM/oracle flow would expose after its validation window.
+The delayed value exposed by the existing Multipli OSM/oracle flow after its scheduled delay.
 
 ### P_DEC
-The decentralized reference/forecast value generated from validator submissions. Initially these are simulated logical validators using a pluggable strategy interface. Later they can be real independently operated nodes/contracts.
+The decentralized reference value generated from validator submissions across the five methodology lanes:
+$$\text{methodology computation} \longrightarrow \text{validator evidence} \longrightarrow \text{deterministic cross-validator aggregation} \longrightarrow P_{DEC}$$
 
 ### P_MARKET
-An independent terminal market observation at T1. MVP may use a public exchange API adapter. Later add several independent market/oracle sources and on-chain observations.
+An independent terminal market observation attested at the close of the verification window ($T_1$).
 
-## 3. Validator abstraction
+### P_FINAL
+Single verified authoritative price exposed to the protocol through one stable price interface.
+
+## 3. Five Methodology Lanes & Validator Abstraction
 
 Each validator submission should contain:
 

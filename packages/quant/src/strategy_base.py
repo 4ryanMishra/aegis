@@ -13,7 +13,7 @@ class InputContext(BaseModel):
     """
     Standard input context passed to a validator strategy.
     Contains strictly historical observations up to current_ts.
-    Guarantees no future-data leakage.
+    Enforces no future-data leakage.
     """
     validator_id: str
     current_ts: int

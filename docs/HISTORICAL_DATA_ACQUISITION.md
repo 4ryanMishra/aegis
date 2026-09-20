@@ -12,7 +12,7 @@ Every historical dataset ingested into the AEGIS benchmark and replay engine mus
 2. **Off-Chain Source Classification**: All centralized exchange records (Binance, Coinbase, Kraken, etc.) and aggregators (CoinGecko, Kaiko) are **OFF-CHAIN**. They must never be described or labeled as "on-chain" data.
 3. **No Synthetic Substitution**: Real datasets must never be silently substituted with synthetic data.
 4. **Cryptographic Provenance**: Every ingested file must undergo **SHA-256 checksum verification** against published digests, with the digest preserved in the `DatasetManifest`.
-5. **Point-in-Time Anti-Leakage**: Replay interfaces must guarantee that validators evaluating at time $t$ can never inspect observations with $t_{\text{obs}} > t$.
+5. **Point-in-Time Anti-Leakage**: Replay interfaces must enforce that validators evaluating at time $t$ can never inspect observations with $t_{\text{obs}} > t$.
 
 ---
 

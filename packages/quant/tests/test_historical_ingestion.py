@@ -229,7 +229,7 @@ def test_point_in_time_anti_leakage_and_target_alignment():
         sampling_interval_seconds=60,
     )
 
-    # 1. Test get_observations_up_to guarantees
+    # 1. Test get_observations_up_to invariants
     t_query = base_ts + 3600
     history = dataset.get_observations_up_to(t_query)
     assert len(history) == 61  # minute 0 to 60 inclusive
