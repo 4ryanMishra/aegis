@@ -187,16 +187,21 @@ def run_scenario_by_id(scenario_id: str) -> VerificationRoundRecord:
         "C": run_scenario_c,
         "D": run_scenario_d,
         "E": run_scenario_e,
+        "NORMAL": run_scenario_a,
+        "FLASH_CRASH": run_scenario_b,
+        "POISONED_VALIDATOR": run_scenario_c,
+        "MARKET_DISLOCATION": run_scenario_d,
+        "OSM_FAILURE": run_scenario_e,
     }
     key = scenario_id.upper().replace("SCENARIO_", "").strip()
     if key not in scenarios:
-        raise ValueError(f"Unknown scenario ID: {scenario_id}. Choose from A, B, C, D, E.")
+        raise ValueError(f"Unknown scenario ID: {scenario_id}. Choose from normal, flash_crash, poisoned_validator, market_dislocation, osm_failure (or A, B, C, D, E).")
     return scenarios[key]()
 
 
 def run_all_scenarios() -> Dict[str, VerificationRoundRecord]:
     print("\n" + "#"*75)
-    print("AEGIS PHASE 4C: END-TO-END VERIFICATION SUITE")
+    print("AEGIS PHASE 4D: END-TO-END VERIFICATION DEMO SUITE")
     print("#"*75)
     
     results = {
@@ -208,10 +213,29 @@ def run_all_scenarios() -> Dict[str, VerificationRoundRecord]:
     }
     
     print("\n" + "="*75)
-    print("ALL 5 SCENARIOS COMPLETED SUCCESSFULLY")
+    print("ALL 5 SCENARIOS COMPLETED DETERMINISTICALLY")
     print("="*75)
     return results
 
 
 if __name__ == "__main__":
-    run_all_scenarios()
+    import argparse
+    parser = argparse.ArgumentParser(description="AEGIS End-to-End Forensic Scenario Runner")
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        default="all",
+        help="Scenario to execute: normal, flash_crash, poisoned_validator, market_dislocation, osm_failure, or all"
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all five scenarios sequentially"
+    )
+    args = parser.parse_args()
+    
+    if args.all or args.scenario.lower() == "all":
+        run_all_scenarios()
+    else:
+        run_scenario_by_id(args.scenario)
+

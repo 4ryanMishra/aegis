@@ -194,6 +194,6 @@ Downstream Protocol (MockRWAUSDProtocol)
 
 ## 10. Repository & Testing Status
 
-- **Solidity Smart Contracts:** 77/77 tests passing (unit, adversarial security, invariant fuzzing, and end-to-end integration).
+- **Solidity Smart Contracts:** 82/82 tests passing across 13 test suites (unit, 22 adversarial security scenarios, invariant fuzzing, and end-to-end integration).
 - **Off-Chain Quantitative Pipeline:** 64/64 pytest tests passing.
 - **Frontend Institutional Dashboard:** Clean production build (`npm run build`).

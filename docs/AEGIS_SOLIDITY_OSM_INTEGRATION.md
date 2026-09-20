@@ -1,5 +1,5 @@
-**Document Version:** 1.4.0  
-**Status:** Implemented, Hardened & Testnet Ready (Phase 4C End-to-End Prototype — Solc 0.8.24 via-IR, 77/77 Solidity Tests Passing)  
+**Document Version:** 1.4.1  
+**Status:** Implemented, Hardened & Testnet Ready (Phase 4D Hardening & Verification — Solc 0.8.24 via-IR, 82/82 Solidity Tests Passing)  
 **Target Platform:** Ethereum / EVM (Foundry / OpenZeppelin v5.0 compliant)  
 **Target Protocol Context:** Multipli RWAUSD Delayed Oracle Integration  
 
@@ -768,9 +768,9 @@ All measurements executed with `solc = "0.8.24"`, optimizer enabled (200 runs):
 
 ### Test Suite Execution Summary
 
-- **Total Solidity Tests:** 77 passing, 0 failing, 0 skipped across 13 test suites (including 17 adversarial security scenarios and 6 end-to-end prototype integration scenarios).
+- **Total Solidity Tests:** 82 passing, 0 failing, 0 skipped across 13 test suites (including 22 adversarial security scenarios and 6 end-to-end prototype integration scenarios).
 - **Total Python Tests:** 64 passing, 0 failing (`python -m pytest`).
-- **End-to-End Scenarios:** All 5 canonical demo scenarios validated via Python CLI (`python -m packages.client.scenario_runner`) and Solidity integration tests (`EndToEndPrototypes.t.sol`).
+- **End-to-End Scenarios:** All 5 canonical demo scenarios validated via Python CLI (`python -m packages.client.scenario_runner --all`) and Solidity integration tests (`EndToEndPrototypes.t.sol`).
 - **Frontend Production Build:** Passing with 0 errors (`npm --prefix apps/web run build`).
 
 

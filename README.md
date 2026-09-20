@@ -333,7 +333,7 @@ forge script script/DeployAEGIS.s.sol:DeployAEGIS --rpc-url $RPC_URL --broadcast
 AEGIS maintains comprehensive automated test suites covering Solidity smart contracts, Python statistical methodologies, and Next.js institutional web dashboards:
 
 ```bash
-# 1. Run all Solidity smart contract tests (77/77 passing including unit, adversarial, fuzz, and integration)
+# 1. Run all Solidity smart contract tests (82/82 passing across 13 suites, including 22 adversarial scenarios)
 cd contracts
 forge test -vvv
 
@@ -344,13 +344,23 @@ forge test --gas-report
 cd ..
 python -m pytest
 
-# 4. Build and verify the Next.js institutional risk terminal (0 errors)
+# 4. Run the 5 deterministic forensic demo scenarios via CLI
+python -m packages.client.scenario_runner --all
+
+# 5. Build and verify the Next.js institutional risk terminal (0 errors)
 npm --prefix apps/web run build
 ```
+
+---
+
+## Judge & Reviewer Quick Start
+
+For a fast, 2-minute architectural and code walkthrough answering core evaluator questions, refer to the [Judge Demo Guide](file:///d:/Projects/aegis/docs/JUDGE_DEMO_GUIDE.md).
 
 ---
 
 ## License & Attribution
 
 AEGIS is developed as an open research prototype for the Rethinking Blockchain Oracles initiative.
+
 

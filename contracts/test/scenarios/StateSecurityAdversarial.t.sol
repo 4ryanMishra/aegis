@@ -547,4 +547,139 @@ contract StateSecurityAdversarialTest is Test {
         vm.expectRevert(abi.encodeWithSelector(AEGISPriceRouter.UnauthorizedCaller.selector, unauth));
         priceRouter.updatePrice(assetId, 1, 2500 * WAD, IAEGISPriceFeed.OracleStatus.HEALTHY_CONSENSUS);
     }
+
+    /// @notice 18. Commit attempt after commit window closes is rejected.
+    function test_Adversarial_CommitAfterCommitPhase_Reverts() public {
+        uint256 rId = _createDefaultRound();
+        bytes32 payloadHash = keccak256(abi.encode(OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, keccak256("1")));
+        bytes32 commitHash = keccak256(abi.encode(block.chainid, address(manager), rId, op1, payloadHash, uint256(1)));
+
+        // Warp past revealStart (11000)
+        vm.warp(11001);
+        vm.prank(op1);
+        vm.expectRevert(abi.encodeWithSelector(AEGISVerificationManager.WindowClosed.selector, "COMMIT", 11001, 11000));
+        manager.commit(rId, commitHash);
+    }
+
+    /// @notice 19. Reveal attempt before reveal window opens is rejected.
+    function test_Adversarial_RevealBeforeRevealStart_Reverts() public {
+        uint256 rId = _createDefaultRound();
+        _commit(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, keccak256("1"), 1);
+
+        // Warp to commit phase (10500), before revealStart (11000)
+        vm.warp(10500);
+        vm.prank(op1);
+        vm.expectRevert(abi.encodeWithSelector(AEGISVerificationManager.WindowNotOpen.selector, "REVEAL", 10500, 11000));
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: rId,
+                laneId: LANE_1_KALMAN,
+                price: 2500 * WAD,
+                uncertaintyValue: 10 * WAD,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: normalDiag,
+                evidenceHash: keccak256("1"),
+                nonce: 1
+            })
+        );
+    }
+
+    /// @notice 20. Reveal attempt after reveal window closes is rejected.
+    function test_Adversarial_RevealAfterRevealEnd_Reverts() public {
+        uint256 rId = _createDefaultRound();
+        _commit(rId, op1, OP_ID_1, LANE_1_KALMAN, 2500 * WAD, 10 * WAD, AggregatorLib.UncertaintyType.CI95_HALF_WIDTH, false, normalDiag, keccak256("1"), 1);
+
+        // Warp past revealEnd (12000)
+        vm.warp(12001);
+        vm.prank(op1);
+        vm.expectRevert(abi.encodeWithSelector(AEGISVerificationManager.WindowClosed.selector, "REVEAL", 12001, 12000));
+        manager.reveal(
+            AEGISVerificationManager.RevealParams({
+                roundId: rId,
+                laneId: LANE_1_KALMAN,
+                price: 2500 * WAD,
+                uncertaintyValue: 10 * WAD,
+                uncertaintyType: AggregatorLib.UncertaintyType.CI95_HALF_WIDTH,
+                isGated: false,
+                diagPayload: normalDiag,
+                evidenceHash: keccak256("1"),
+                nonce: 1
+            })
+        );
+    }
+
+    /// @notice 21. Extreme uncertainty values (0 or massive 1e30) are safely bounded without division-by-zero or overflow.
+    function test_Adversarial_ExtremeUncertaintyValues_HandledSafely() public pure {
+        AggregatorLib.OperatorPriceSubmission[] memory subs = new AggregatorLib.OperatorPriceSubmission[](3);
+        subs[0] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: keccak256("OP1"),
+            operator: address(0x1),
+            price: 2500 * WAD,
+            uncertaintyValue: 0, // Zero uncertainty
+            uncertaintyType: AggregatorLib.UncertaintyType.ABSOLUTE_STD,
+            isGated: false
+        });
+        subs[1] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: keccak256("OP2"),
+            operator: address(0x2),
+            price: 2500 * WAD,
+            uncertaintyValue: 1e30, // Extremely large uncertainty
+            uncertaintyType: AggregatorLib.UncertaintyType.ABSOLUTE_STD,
+            isGated: false
+        });
+        subs[2] = AggregatorLib.OperatorPriceSubmission({
+            operatorId: keccak256("OP3"),
+            operator: address(0x3),
+            price: 2500 * WAD,
+            uncertaintyValue: 10 * WAD,
+            uncertaintyType: AggregatorLib.UncertaintyType.ABSOLUTE_STD,
+            isGated: false
+        });
+
+        AggregatorLib.CanonicalLaneEstimate memory est = AggregatorLib.aggregateLaneTier1(subs);
+        assertEq(est.price, 2500 * WAD);
+        assertGt(est.sigmaLane, 0);
+    }
+
+    /// @notice 22. EIP-712 signature generated with wrong verifyingContract address is rejected.
+    function test_Adversarial_WrongVerifyingContract_SignatureRejected() public {
+        MarketAttestor.MarketAttestation memory att = MarketAttestor.MarketAttestation({
+            assetId: assetId,
+            roundId: 1,
+            price: 2500 * WAD,
+            timestamp: block.timestamp,
+            sourceId: keccak256("MKT"),
+            nonce: 1
+        });
+
+        // Compute digest using wrong contract address (e.g. address(0xDEAD))
+        bytes32 wrongDomainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("AEGISMarketAttestor")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(0xDEAD)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("MarketAttestation(bytes32 assetId,uint256 roundId,uint256 price,uint64 timestamp,bytes32 sourceId,uint256 nonce)"),
+                att.assetId,
+                att.roundId,
+                att.price,
+                att.timestamp,
+                att.sourceId,
+                att.nonce
+            )
+        );
+        bytes32 forgedDigest = keccak256(abi.encodePacked("\x19\x01", wrongDomainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attestorPk, forgedDigest);
+
+        // Verification must fail because recovered signer will not match authorized attestor
+        vm.expectRevert();
+        marketAttestor.verifyAttestation(att, abi.encodePacked(r, s, v), block.timestamp - 100);
+    }
 }
+
