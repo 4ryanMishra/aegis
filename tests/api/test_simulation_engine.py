@@ -99,3 +99,36 @@ def test_simulation_engine_osm_failure_fallback(engine):
     assert snap["p_dec"]["value"] > 90.0
     assert snap["decision"]["selected_source"] == "P_DEC (FAILSAFE)"
     assert snap["decision"]["action"] == "RESTRICT"
+
+
+def test_simulation_engine_position_lifecycle(engine):
+    # Initial state: 10 oz Gold @ $100 -> $1000 collateral, 80% LTV -> $800 max borrow, $700 debt (HEALTHY)
+    engine.reset("scen_flash_crash", ltv=0.80)
+    snap0 = engine.get_snapshot()
+    pos0 = snap0["position"]
+    assert pos0["collateral_amount"] == 10.0
+    assert pos0["debt_amount"] == 700.0
+    assert pos0["effective_ltv"] == 0.80
+    assert pos0["max_borrow_capacity"] == 800.0
+    assert pos0["position_status"] == "HEALTHY"
+    assert "causal_chain" in snap0
+
+    # Advance to crash at t=1800s (30m): market drops to ~93.50, AEGIS triggers RESTRICTED (50% LTV)
+    engine.sim_time_seconds = 1800.0
+    snap_crash = engine.get_snapshot()
+    pos_crash = snap_crash["position"]
+    assert pos_crash["effective_ltv"] == 0.50
+    assert pos_crash["max_borrow_capacity"] < 500.0
+    assert pos_crash["position_status"] in ("RESTRICTED", "OVER_LIMIT")
+
+    # Update position (deposit more collateral, e.g. 20 oz)
+    engine.update_position(collateral_amount=20.0)
+    snap_dep = engine.get_snapshot()
+    assert snap_dep["position"]["collateral_amount"] == 20.0
+    assert snap_dep["position"]["collateral_value"] > 1800.0
+
+    # Borrow max capacity
+    engine.update_position(set_max_borrow=True)
+    snap_max = engine.get_snapshot()
+    assert snap_max["position"]["debt_amount"] == snap_max["position"]["max_borrow_capacity"]
+

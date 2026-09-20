@@ -81,8 +81,11 @@ class SimulationEngine:
         self.is_paused: bool = False
         self.is_finalized: bool = False
         self.last_wall_time: Optional[float] = None
-        self.seed: int = 42
-        self.ltv: float = 0.80
+        # User Collateral Position State (MockRWAUSDProtocol)
+        self.user_address: str = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+        self.collateral_asset: str = "Tokenized Gold (XAU)"
+        self.collateral_amount: float = 10.0  # 10.00 oz default
+        self.debt_amount: float = 700.0        # 700.00 RWAUSD default
 
         # Validator Node Definitions (10 simulated nodes across operators and lanes)
         self.node_definitions = [
@@ -117,6 +120,24 @@ class SimulationEngine:
         self.is_paused = False
         self.is_finalized = False
         self.last_wall_time = None
+        self.collateral_amount = 10.0
+        self.debt_amount = 700.0
+
+    def update_position(
+        self,
+        collateral_amount: Optional[float] = None,
+        debt_amount: Optional[float] = None,
+        set_max_borrow: bool = False,
+    ):
+        """Update downstream RWAUSD collateralized position."""
+        if collateral_amount is not None:
+            self.collateral_amount = max(0.0, float(collateral_amount))
+
+        if set_max_borrow:
+            snap = self.get_snapshot()
+            self.debt_amount = max(0.0, float(snap["position"]["max_borrow_capacity"]))
+        elif debt_amount is not None:
+            self.debt_amount = max(0.0, float(debt_amount))
 
     def start(self):
         """Start or resume continuous simulation."""
@@ -447,6 +468,79 @@ class SimulationEngine:
             ltv=self.ltv,
         )
 
+        # 6.5 Downstream Collateralized RWAUSD Position Calculation
+        if decision.final_price is not None:
+            effective_price = decision.final_price
+        elif p_dec.value is not None:
+            effective_price = p_dec.value
+        else:
+            effective_price = p_osm.value or 100.0
+
+        if decision.action == "HALT" or evidence.oracle_status == OracleStatus.HALTED_CIRCUIT_BREAKER or decision.dispute_status == "HALTED":
+            protocol_state = "HALTED"
+            effective_ltv = 0.0
+        elif decision.action == "HAIRCUT" or decision.dispute_status == "RESTRICTED" or evidence.oracle_status in (OracleStatus.EVIDENCE_OF_ABNORMAL_DEVIATION, OracleStatus.SUSPECTED_INCONSISTENCY):
+            protocol_state = "RESTRICTED"
+            effective_ltv = 0.50
+        else:
+            protocol_state = "NORMAL"
+            effective_ltv = self.ltv if self.ltv is not None else 0.80
+
+        collateral_value = round(self.collateral_amount * effective_price, 2)
+        max_borrow_capacity = round(collateral_value * effective_ltv, 2)
+        current_ltv = round(self.debt_amount / max(0.0001, collateral_value), 4) if collateral_value > 0 else 0.0
+        borrowing_headroom = round(max_borrow_capacity - self.debt_amount, 2)
+
+        if self.debt_amount <= 0.0001:
+            health_factor = 999.0
+        elif collateral_value <= 0.0001:
+            health_factor = 0.0
+        else:
+            health_factor = round(max_borrow_capacity / self.debt_amount, 2)
+
+        if protocol_state == "HALTED":
+            position_status = "HALTED"
+        elif self.debt_amount > max_borrow_capacity:
+            if protocol_state == "RESTRICTED":
+                position_status = "RESTRICTED"
+            else:
+                position_status = "OVER_LIMIT"
+        elif health_factor < 1.10:
+            position_status = "AT_RISK"
+        else:
+            position_status = "HEALTHY"
+
+        position = {
+            "user_address": self.user_address,
+            "collateral_asset": self.collateral_asset,
+            "collateral_amount": round(self.collateral_amount, 2),
+            "collateral_value": collateral_value,
+            "effective_oracle_price": round(effective_price, 2),
+            "debt_amount": round(self.debt_amount, 2),
+            "current_ltv": current_ltv,
+            "effective_ltv": effective_ltv,
+            "max_borrow_capacity": max_borrow_capacity,
+            "borrowing_headroom": borrowing_headroom,
+            "health_factor": health_factor,
+            "protocol_state": protocol_state,
+            "position_status": position_status,
+        }
+
+        # Causal Chain Telemetry
+        dev_pct = round(abs(p_osm.value - (p_market.value or p_osm.value)) / max(0.01, p_market.value or p_osm.value) * 100, 1)
+        causal_chain = {
+            "market_price": round(p_market.value, 2) if p_market.value is not None else None,
+            "osm_price": round(p_osm.value, 2) if p_osm.value is not None else None,
+            "dec_price": round(p_dec.value, 2) if p_dec.value is not None else None,
+            "deviation_detected_pct": dev_pct,
+            "anomaly_score": round(evidence.anomaly_score, 3),
+            "oracle_status": evidence.oracle_status.value,
+            "oracle_decision": decision.dispute_status,
+            "effective_ltv": effective_ltv,
+            "max_borrow_capacity": max_borrow_capacity,
+            "position_status": position_status,
+        }
+
         # 7. Generate Real-Time Time Series History (up to current minute)
         time_series: List[Dict[str, Any]] = []
         total_minutes = int(t_sec // 60)
@@ -521,6 +615,8 @@ class SimulationEngine:
             "evidence": evidence.model_dump(),
             "decision": decision.model_dump(),
             "collateral": collateral.model_dump(),
+            "position": position,
+            "causal_chain": causal_chain,
             "validators": [v.model_dump() for v in active_validators_results],
             "validator_nodes": node_status_list,
             "lane_telemetry": lane_latest_metrics,
@@ -556,6 +652,18 @@ class SimulationEngine:
                 "category": "VALIDATOR",
                 "message": "Validator operators registered across 5 methodology lanes",
                 "severity": "INFO",
+            })
+            events.append({
+                "timestamp": "00:15",
+                "category": "POSITION",
+                "message": "User position active: Deposited 10.00 oz Gold Collateral ($1,000.00 initial value)",
+                "severity": "INFO",
+            })
+            events.append({
+                "timestamp": "00:20",
+                "category": "PROTOCOL",
+                "message": "RWAUSD debt facility opened: Borrowed $700.00 (70.0% LTV, HEALTHY)",
+                "severity": "SUCCESS",
             })
 
         if t_sec >= 120:
@@ -616,6 +724,18 @@ class SimulationEngine:
                     "category": "PROTOCOL",
                     "message": "Protocol risk state shifted to RESTRICTED (LTV capped at 50%)",
                     "severity": "ALERT",
+                })
+                events.append({
+                    "timestamp": "30:05",
+                    "category": "POSITION",
+                    "message": "Downstream position restricted: Max borrowing power reduced from $800.00 to $467.50",
+                    "severity": "WARNING",
+                })
+                events.append({
+                    "timestamp": "30:10",
+                    "category": "AUDIT",
+                    "message": "AEGIS saved $332.50 in under-collateralized borrowing risk over stale P_OSM",
+                    "severity": "SUCCESS",
                 })
 
         elif scen_type == "POISONED_VALIDATOR" and t_sec >= 600:
@@ -699,6 +819,10 @@ class SimulationEngine:
         is_finalized: bool,
     ) -> str:
         """Construct dynamic natural-language interpretation based on live state."""
+        dec_val_str = f"${p_dec.value:.2f}" if p_dec.value is not None else "gathering..."
+        osm_val_str = f"${p_osm.value:.2f}" if p_osm.value is not None else "$0.00"
+        mkt_val_str = f"${p_market.value:.2f}" if p_market.value is not None else "pending..."
+
         if scen_type == "NORMAL":
             return (
                 "Market conditions remain stationary. All five independent methodology lanes agree within narrow "
@@ -708,9 +832,9 @@ class SimulationEngine:
         elif scen_type == "FLASH_CRASH":
             diff_str = f"${collateral.difference:.2f}/unit" if collateral.difference else "protective haircuts"
             return (
-                f"P_OSM remains delayed/stale at ${p_osm.value:.2f} while continuous validator evidence detects an "
-                f"intraday market crash to ${p_market.value:.2f}. AEGIS has dynamically engaged RESTRICTED 50% LTV "
-                f"and substituted P_DEC (${p_dec.value:.2f}), successfully preventing {diff_str} in simulated collateral overstatement."
+                f"P_OSM remains delayed/stale at {osm_val_str} while continuous validator evidence detects an "
+                f"intraday market crash to {mkt_val_str}. AEGIS has dynamically engaged RESTRICTED 50% LTV "
+                f"and substituted P_DEC ({dec_val_str}), successfully preventing {diff_str} in simulated collateral overstatement."
             )
         elif scen_type == "POISONED_VALIDATOR":
             return (
@@ -727,7 +851,7 @@ class SimulationEngine:
         elif scen_type == "OSM_FAILURE":
             return (
                 "Upstream OSM feed failed or reverted (P_OSM = $0.00). AEGIS automatically activated decentralized failsafe fallback, "
-                f"routing authoritative valuation to robust P_DEC (${p_dec.value:.2f}) under RESTRICTED risk parameters."
+                f"routing authoritative valuation to robust P_DEC ({dec_val_str}) under RESTRICTED risk parameters."
             )
         else:
             return (

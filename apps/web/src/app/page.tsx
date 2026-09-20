@@ -16,6 +16,7 @@ import {
   stepSimulation,
   finalizeSimulation,
   configSimulation,
+  updateSimulationPosition,
 } from '@/lib/api-client';
 import { TerminalHeader } from '@/components/terminal-header';
 import { OracleStrip } from '@/components/oracle-strip';
@@ -26,6 +27,8 @@ import { DecisionPanel } from '@/components/decision-panel';
 import { ProvenanceDrawer } from '@/components/provenance-drawer';
 import { LiveEventFeed } from '@/components/live-event-feed';
 import { SystemInterpretation } from '@/components/system-interpretation';
+import { UserPositionCard } from '@/components/user-position-card';
+import { CausalChainPanel } from '@/components/causal-chain-panel';
 
 export default function RiskTerminalPage() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([]);
@@ -185,6 +188,16 @@ export default function RiskTerminalPage() {
     }
   };
 
+  // Handler: Position Updates (Deposit / Borrow)
+  const handleUpdatePosition = async (collateralAmount?: number, debtAmount?: number, setMaxBorrow?: boolean) => {
+    try {
+      const fresh = await updateSimulationPosition(collateralAmount, debtAmount, setMaxBorrow);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update position');
+    }
+  };
+
   const handleInspect = (target: string | ValidatorObservation) => {
     setInspectTarget(target);
     setIsDrawerOpen(true);
@@ -292,17 +305,29 @@ export default function RiskTerminalPage() {
           onInspect={handleInspect}
         />
 
-        {/* 2. Verification Window Progression Timeline */}
+        {/* 2. Causal Chain Pipeline (Oracle Evidence -> Risk State -> Position Health) */}
+        <CausalChainPanel
+          snapshot={snapshot}
+        />
+
+        {/* 3. Verification Window Progression Timeline */}
         <VerificationTimeline
           scenario={scenarioRecord}
         />
 
-        {/* 3. Main Operational Grid */}
+        {/* 4. Main Operational Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           
-          {/* Left Column: Valuation Chart & Validator Matrix (7 cols) */}
+          {/* Left Column: Collateral Position, Valuation Chart & Validator Matrix (7 cols) */}
           <div className="lg:col-span-7 space-y-5">
             
+            {/* Downstream RWAUSD Collateral Vault Card */}
+            <UserPositionCard
+              position={snapshot.position}
+              snapshot={snapshot}
+              onUpdatePosition={handleUpdatePosition}
+            />
+
             {/* Live Time Series Stream Chart */}
             <ComparisonChart
               scenario={scenarioRecord}

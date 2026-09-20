@@ -152,6 +152,38 @@ export async function configSimulation(speedMultiplier?: number, scenarioId?: st
   throw new Error('Failed to configure simulation');
 }
 
+export async function updateSimulationPosition(
+  collateralAmount?: number,
+  debtAmount?: number,
+  setMaxBorrow: boolean = false
+): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/position`,
+    'http://127.0.0.1:8000/api/simulation/position',
+    'http://localhost:8000/api/simulation/position'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collateral_amount: collateralAmount,
+          debt_amount: debtAmount,
+          set_max_borrow: setMaxBorrow,
+        }),
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to update simulation position');
+}
+
 export async function fetchScenarios(): Promise<ScenarioListItem[]> {
   const urls = [
     `${API_BASE_URL}/api/scenarios`,

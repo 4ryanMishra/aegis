@@ -258,3 +258,26 @@ class SimulationConfigRequest(BaseModel):
     speed_multiplier: Optional[float] = Field(default=60.0)
     scenario_id: Optional[str] = None
     ltv_factor: Optional[float] = None
+
+
+class PositionUpdateRequest(BaseModel):
+    collateral_amount: Optional[float] = Field(default=None, ge=0.0)
+    debt_amount: Optional[float] = Field(default=None, ge=0.0)
+    set_max_borrow: Optional[bool] = Field(default=False)
+
+
+class UserPositionState(BaseModel):
+    user_address: str = Field(default="0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+    collateral_asset: str = Field(default="Tokenized Gold (XAU)")
+    collateral_amount: float = Field(default=10.0, description="Deposited collateral amount")
+    collateral_value: float = Field(default=1000.0, description="Calculated value under effective oracle price")
+    effective_oracle_price: float = Field(default=100.0, description="Authoritative price used by protocol")
+    debt_amount: float = Field(default=700.0, description="Borrowed RWAUSD debt")
+    current_ltv: float = Field(default=0.70, description="Debt / Collateral Value")
+    effective_ltv: float = Field(default=0.80, description="Permitted LTV under active AEGIS risk state")
+    max_borrow_capacity: float = Field(default=800.0, description="Collateral Value * Effective LTV")
+    borrowing_headroom: float = Field(default=100.0, description="Max Borrow - Current Debt")
+    health_factor: float = Field(default=1.14, description="Max Borrow / Debt (or standard health ratio)")
+    protocol_state: str = Field(default="NORMAL", description="NORMAL (80%), RESTRICTED (50%), HALTED (0%)")
+    position_status: str = Field(default="HEALTHY", description="HEALTHY, RESTRICTED, OVER_LIMIT, HALTED")
+

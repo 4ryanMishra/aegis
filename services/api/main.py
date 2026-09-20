@@ -12,6 +12,7 @@ try:
         SimulationResetRequest,
         SimulationStepRequest,
         SimulationConfigRequest,
+        PositionUpdateRequest,
     )
     from services.api.src.core.coordinator import VerificationCoordinator
     from services.api.src.core.simulation_engine import SimulationEngine
@@ -24,6 +25,7 @@ except ImportError:
         SimulationResetRequest,
         SimulationStepRequest,
         SimulationConfigRequest,
+        PositionUpdateRequest,
     )
     from src.core.coordinator import VerificationCoordinator
     from src.core.simulation_engine import SimulationEngine
@@ -130,6 +132,17 @@ def config_simulation(req: SimulationConfigRequest):
         simulation_engine.set_speed(req.speed_multiplier)
     if req.scenario_id is not None:
         simulation_engine.reset(scenario_id=req.scenario_id, ltv=req.ltv_factor)
+    return {"status": "UPDATED", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/position")
+def update_position(req: PositionUpdateRequest):
+    """Update downstream collateral position or borrow amount."""
+    simulation_engine.update_position(
+        collateral_amount=req.collateral_amount,
+        debt_amount=req.debt_amount,
+        set_max_borrow=req.set_max_borrow or False,
+    )
     return {"status": "UPDATED", "state": simulation_engine.get_snapshot()}
 
 

@@ -271,6 +271,35 @@ export interface ValidatorNodeStatus {
   quote: number | null;
 }
 
+export interface UserPositionState {
+  user_address: string;
+  collateral_asset: string;
+  collateral_amount: number;
+  collateral_value: number;
+  effective_oracle_price: number;
+  debt_amount: number;
+  current_ltv: number;
+  effective_ltv: number;
+  max_borrow_capacity: number;
+  borrowing_headroom: number;
+  health_factor: number;
+  protocol_state: 'NORMAL' | 'RESTRICTED' | 'HALTED' | string;
+  position_status: 'HEALTHY' | 'RESTRICTED' | 'OVER_LIMIT' | 'AT_RISK' | 'HALTED' | string;
+}
+
+export interface CausalChainTelemetry {
+  market_price: number | null;
+  osm_price: number | null;
+  dec_price: number | null;
+  deviation_detected_pct: number;
+  anomaly_score: number;
+  oracle_status: string;
+  oracle_decision: string;
+  effective_ltv: number;
+  max_borrow_capacity: number;
+  position_status: string;
+}
+
 export interface SimulationSnapshot {
   scenario_id: string;
   title: string;
@@ -298,6 +327,8 @@ export interface SimulationSnapshot {
   evidence: EvidenceRecord;
   decision: DecisionResult;
   collateral: CollateralImpact;
+  position?: UserPositionState;
+  causal_chain?: CausalChainTelemetry;
   validators: ValidatorObservation[];
   validator_nodes: ValidatorNodeStatus[];
   lane_telemetry: Record<string, any>;
