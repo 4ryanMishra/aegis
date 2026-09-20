@@ -1,10 +1,10 @@
-# AEGIS — Solidity / OSM Integration Architecture Specification
-**Document Version:** 1.3.0  
-**Status:** Implemented & Hardened (Phase 4B.1 Trust Model Hardening — Solc 0.8.24 via-IR, 71/71 Tests Passing)  
+**Document Version:** 1.4.0  
+**Status:** Implemented, Hardened & Testnet Ready (Phase 4C End-to-End Prototype — Solc 0.8.24 via-IR, 77/77 Solidity Tests Passing)  
 **Target Platform:** Ethereum / EVM (Foundry / OpenZeppelin v5.0 compliant)  
 **Target Protocol Context:** Multipli RWAUSD Delayed Oracle Integration  
 
 ---
+
 
 ## 1. Architecture Overview
 
@@ -768,7 +768,9 @@ All measurements executed with `solc = "0.8.24"`, optimizer enabled (200 runs):
 
 ### Test Suite Execution Summary
 
-- **Total Solidity Tests:** 54 passing, 0 failing, 0 skipped across 11 test suites.
-- **Total Python Tests:** 58 passing, 0 failing (`python -m pytest`).
+- **Total Solidity Tests:** 77 passing, 0 failing, 0 skipped across 13 test suites (including 17 adversarial security scenarios and 6 end-to-end prototype integration scenarios).
+- **Total Python Tests:** 64 passing, 0 failing (`python -m pytest`).
+- **End-to-End Scenarios:** All 5 canonical demo scenarios validated via Python CLI (`python -m packages.client.scenario_runner`) and Solidity integration tests (`EndToEndPrototypes.t.sol`).
 - **Frontend Production Build:** Passing with 0 errors (`npm --prefix apps/web run build`).
+
 

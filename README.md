@@ -257,19 +257,90 @@ Measured execution costs under `solc = "0.8.24"` (`via_ir = true`) with 200 opti
 
 ---
 
+---
+
+## End-to-End Prototype & Testnet Integration (Phase 4C)
+
+Phase 4C delivers a complete, executable end-to-end verification prototype connecting off-chain Python validator telemetry, on-chain Solidity contracts, keeper orchestration, deterministic demo scenarios, and downstream protocol consumption.
+
+### Component Map
+
+```text
+[ Market / Historical Quotes ]
+              ↓
+  Validator Node Clients (Python)
+  • 5 Statistical Methodology Lanes
+  • Typed Uncertainty Extraction
+  • Cryptographic Keccak-256 Commitments
+              ↓
+  Keeper Orchestration Loop (Python / RPC)
+  • createRound()
+  • commit() → reveal()
+  • signAndAttachMarketAttestation()
+  • finalizeRoundWithAttestation()
+              ↓
+  AEGIS Solidity Layer (Contracts / EVM)
+  • ValidatorRegistry (Operator ID vs Wallet Binding)
+  • MarketAttestor (EIP-712 Attestation Verification)
+  • AggregatorLib (Tier 1 Within-Lane & Tier 2 Cross-Lane)
+  • AEGISEvidenceEngine & AEGISDecisionEngine
+  • AEGISPriceRouter (IAEGISPriceFeed Interface)
+              ↓
+  Downstream Protocol (MockRWAUSDProtocol)
+  • NORMAL: 80% LTV ($80,000 borrow capacity per $100k collateral)
+  • RESTRICTED: 50% LTV + Valuation Haircut
+  • HALTED: Circuit Breaker Reverts / Operations Frozen
+```
+
+### Five Canonical Demo Scenarios
+
+| Scenario | State / Input Condition | Resulting Oracle Status | Protocol State & Action |
+| :--- | :--- | :--- | :--- |
+| **A: Normal Operation** | Stable consensus ($P_{OSM} \approx P_{DEC} \approx P_{MARKET} = \$100$) | `HEALTHY_CONSENSUS` | `NORMAL` (80% LTV, Full Borrowing) |
+| **B: Flash Crash** | Upstream OSM stale at \$100; live market & validators drop to \$93 | `EVIDENCE_OF_ABNORMAL_DEVIATION` | `RESTRICTED` (50% LTV, Conservative Price Haircut) |
+| **C: Poisoned Validator** | 1 rogue validator injects \$500; 2 honest validators submit \$100 | `HEALTHY_CONSENSUS` | `NORMAL` (Rogue Outlier Suppressed by Tier-1 Median) |
+| **D: Market Dislocation** | $P_{OSM} \approx P_{DEC} \approx \$100$, but $P_{MARKET} = \$70$ | `HALTED_CIRCUIT_BREAKER` | `HALTED` (Circuit Breaker Tripped, Operations Frozen) |
+| **E: OSM Read Failure** | Upstream OSM `readPrice()` returns `hasPrice = false` or reverts | `SUSPECTED_INCONSISTENCY` | `RESTRICTED` (Graceful Failsafe to $P_{DEC}$) |
+
+### Running the End-to-End Scenarios
+
+```bash
+# Execute all 5 deterministic demo scenarios via Python CLI
+python -m packages.client.scenario_runner
+
+# Execute via Foundry Solidity integration suite
+cd contracts
+forge test --match-contract EndToEndPrototypesTest -vvv
+```
+
+### Testnet Deployment
+
+To deploy AEGIS to an EVM testnet (e.g., Sepolia, Base Sepolia, Arbitrum Sepolia, or local Anvil):
+
+```bash
+cd contracts
+# Copy environment configuration
+cp .env.example .env
+
+# Deploy contracts and configure test assets
+forge script script/DeployAEGIS.s.sol:DeployAEGIS --rpc-url $RPC_URL --broadcast --verify
+```
+
+---
+
 ## Verification & Testing
 
 AEGIS maintains comprehensive automated test suites covering Solidity smart contracts, Python statistical methodologies, and Next.js institutional web dashboards:
 
 ```bash
-# 1. Run all Solidity smart contract tests (71/71 passing including 17 adversarial security scenarios)
+# 1. Run all Solidity smart contract tests (77/77 passing including unit, adversarial, fuzz, and integration)
 cd contracts
 forge test -vvv
 
 # 2. Run Solidity gas benchmarks & invariant fuzz suites
 forge test --gas-report
 
-# 3. Run all off-chain quant methodologies & pipeline integration tests (58/58 passing)
+# 3. Run all off-chain quant methodologies & pipeline integration tests (64/64 passing)
 cd ..
 python -m pytest
 
@@ -282,3 +353,4 @@ npm --prefix apps/web run build
 ## License & Attribution
 
 AEGIS is developed as an open research prototype for the Rethinking Blockchain Oracles initiative.
+

@@ -156,9 +156,44 @@ contracts/src/
 9. **Applicability-Aware 3D Quorum:** Rounds require configured minimum total reveals ($N_{\text{total}}$), distinct operator identities ($N_{\text{operators}}$), and distinct applicable lanes ($N_{\text{lanes}} \ge 3$). An asset where OU analysis is marked `NOT_APPLICABLE` does not suffer quorum failure.
 10. **Single Authoritative Price Interface:** Protocols consume exactly one method: `IAEGISPriceFeed.getPrice(bytes32 assetId) -> (uint256 price, OracleStatus status, uint256 timestamp)`.
 
-## 8. Verified Test Coverage
+## 9. End-to-End Integration & Testnet Prototype (Phase 4C)
 
-- **Solidity Test Suite:** 71/71 tests passing (`forge test`), covering unit tests, integration tests (`EndToEndVerification.t.sol`), invariant fuzz testing (`VerificationInvariants.t.sol`), 17 adversarial security scenarios (`StateSecurityAdversarial.t.sol`), and gas benchmarking (`GasBenchmarks.t.sol`).
-- **Python Quantitative Suite:** 58/58 tests passing (`python -m pytest`), verifying all 5 methodology lanes, historical ingestion, and benchmark APIs.
-- **Frontend Dashboard:** Production Next.js build passes with 0 errors (`npm --prefix apps/web run build`).
+The AEGIS Phase 4C prototype establishes a unified operational loop linking statistical methodology execution to on-chain protocol consumption:
 
+```text
+Historical / Live Tick Data
+            ↓
+ValidatorNodeClient (Python)
+• Lane 1 (Kalman + Chi-squared gating)
+• Lane 2 (Huber M-Estimation via IRLS)
+• Lane 3 (JSD Pairwise Divergence)
+• Lane 4 (Ornstein-Uhlenbeck RWA Spread Residuals)
+• Lane 5 (Page CUSUM Cumulative Sequential Drift)
+• Typed Uncertainty (CI95, std, dispersion)
+            ↓
+Keeper Orchestration Loop
+• Opens verification round (createRound)
+• Submits cryptographic commitments (commit)
+• Reveals payloads after commit window (reveal)
+• Attaches EIP-712 MarketAttestor signature
+• Executes atomic finalization (finalizeRoundWithAttestation)
+            ↓
+AEGIS Verification Manager & Engines (Solidity)
+• Validates 3D Quorum (reveals, operators, applicable lanes)
+• Tier 1 Within-Lane Median & Dispersion Heuristic
+• Tier 2 Cross-Lane Inverse-Variance Synthesis -> P_DEC
+• Evaluates Triangular Evidence Matrix -> P_FINAL & OracleStatus
+• Updates AEGISPriceRouter
+            ↓
+Downstream Protocol (MockRWAUSDProtocol)
+• Evaluates borrow / liquidation capacity based on OracleStatus
+• NORMAL: 80% LTV ($80k borrow per $100k collateral)
+• RESTRICTED: 50% LTV + conservative haircut
+• HALTED: Reverts operations, protecting solvency
+```
+
+## 10. Repository & Testing Status
+
+- **Solidity Smart Contracts:** 77/77 tests passing (unit, adversarial security, invariant fuzzing, and end-to-end integration).
+- **Off-Chain Quantitative Pipeline:** 64/64 pytest tests passing.
+- **Frontend Institutional Dashboard:** Clean production build (`npm run build`).
