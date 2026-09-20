@@ -2,6 +2,31 @@
 
 AEGIS is a research-grade MVP for the Rethinking Blockchain Oracles track. It repurposes a delayed oracle window into a structured, multi-lane cryptographic and statistical verification process.
 
+---
+
+## Quick Start — One-Click Demo Launcher (Windows PowerShell)
+
+Launch the complete AEGIS demo environment (Python Backend API + Next.js Forensic Dashboard + Automatic Browser Launch):
+
+```powershell
+.\run-demo.ps1
+```
+
+- **Frontend Dashboard:** [http://localhost:3000](http://localhost:3000)
+- **Backend API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+## Verify Implementation
+
+Run the automated test and verification suite (Python tests, 5 deterministic scenarios, Next.js production build, and Solidity contracts if Foundry is available):
+
+```powershell
+.\verify.ps1
+```
+
+*(Note: Foundry/Solidity is used for on-chain contract verification and is **not** a prerequisite to run the live interactive demo.)*
+
+---
+
 ## Canonical Architecture
 
 AEGIS operates strictly after and outside the existing Oracle Security Module (OSM) pipeline:
