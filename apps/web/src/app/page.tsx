@@ -23,13 +23,21 @@ export default function RiskTerminalPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [inspectTarget, setInspectTarget] = useState<string | ValidatorObservation | null>(null);
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   // Load scenarios on mount
   useEffect(() => {
     async function init() {
-      const list = await fetchScenarios();
-      setScenarios(list);
-      if (list.length > 0) {
-        setSelectedScenarioId(list[0].scenario_id);
+      try {
+        setErrorMsg(null);
+        const list = await fetchScenarios();
+        setScenarios(list);
+        if (list.length > 0) {
+          setSelectedScenarioId(list[0].scenario_id);
+        }
+      } catch (err: any) {
+        console.error('Failed to init scenarios:', err);
+        setErrorMsg(err?.message || 'Failed to connect to backend on http://127.0.0.1:8000');
       }
     }
     init();
@@ -41,8 +49,12 @@ export default function RiskTerminalPage() {
       if (!selectedScenarioId) return;
       setIsLoading(true);
       try {
+        setErrorMsg(null);
         const record = await runScenario(selectedScenarioId, ltv, stepSeconds);
         setCurrentScenario(record);
+      } catch (err: any) {
+        console.error('Failed to run scenario:', err);
+        setErrorMsg(err?.message || 'Failed to execute scenario verification');
       } finally {
         setIsLoading(false);
       }
@@ -66,6 +78,23 @@ export default function RiskTerminalPage() {
     setInspectTarget(target);
     setIsDrawerOpen(true);
   };
+
+  if (errorMsg && !currentScenario) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg max-w-lg shadow-sm">
+          <p className="font-semibold text-sm mb-1">AEGIS Backend Connection Error</p>
+          <p className="font-mono text-xs text-red-600 mb-4">{errorMsg}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition-colors"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentScenario) {
     return (
