@@ -1,16 +1,22 @@
 export type DataStatus = 'SIMULATED' | 'OBSERVED' | 'PENDING' | 'OFF_CHAIN_API' | 'TO_VERIFY';
 
+export type OracleSourceStatus = 'ACTIVE' | 'STALE' | 'DELAYED' | 'FAILED' | 'DISABLED';
+
 export type OracleStatus = 
   | 'HEALTHY_CONSENSUS'
   | 'SUSPECTED_INCONSISTENCY'
   | 'EVIDENCE_OF_ABNORMAL_DEVIATION'
   | 'DISPERSED_UNCERTAINTY'
   | 'HALTED_CIRCUIT_BREAKER'
-  | 'PENDING_FINALIZATION'
-  | 'VALIDATOR_QUORUM_DEFICIT'
-  | 'OUTLIER_CONTAMINATED_CONSENSUS'
-  | 'LATENT_SYSTEMATIC_DRIFT'
-  | 'STRUCTURAL_DEPEG_ANOMALY';
+  | 'PENDING_FINALIZATION';
+
+export type DecisionState = 
+  | 'HEALTHY_CONSENSUS'
+  | 'MULTIPLI_DEVIATION'
+  | 'SOURCE_DEGRADED'
+  | 'NO_CONSENSUS'
+  | 'MARKET_CORROBORATED'
+  | 'ORACLE_INSTABILITY';
 
 export type DecisionPolicy = 
   | 'NEAREST_TO_MARKET' 
@@ -31,14 +37,6 @@ export interface TimeWindow {
   duration_seconds: number;
   elapsed_seconds: number;
   is_finalized: boolean;
-}
-
-export interface OSMFeed {
-  value: number;
-  timestamp: number;
-  source: string;
-  status: DataStatus;
-  description?: string;
 }
 
 export interface KalmanMetrics {
@@ -134,43 +132,99 @@ export interface CUSUMMetrics {
   recent_trajectory?: number[];
 }
 
+export interface OracleObservation {
+  source_id: string;
+  name: string;
+  price: number | null;
+  updated_at: number;
+  age_seconds: number;
+  status: OracleSourceStatus;
+  confidence?: number | null;
+  has_confidence: boolean;
+  valid: boolean;
+  cluster_id?: string | null;
 
-export interface ValidatorObservation {
-  validator_id: string;
-  lane_id: string;
-  operator_id: string;
-  methodology: string;
-  methodology_name: string;
-  role?: string;
+  // Backward compatibility properties for legacy drawer / views
+  validator_id?: string;
+  lane_id?: string;
+  operator_id?: string;
+  methodology?: string;
+  methodology_name?: string;
+  estimated_price?: number | null;
+  uncertainty_lower?: number | null;
+  uncertainty_upper?: number | null;
+  anomaly_score?: number;
+  decision?: string;
+  reason_code?: string;
   is_price_estimator?: boolean;
-  estimated_price: number | null;
-  uncertainty_lower: number | null;
-  uncertainty_upper: number | null;
-  anomaly_score: number;
-  decision: string;
-  reason_code: string;
   diagnostic_evidence?: Record<string, any>;
-  intermediate_metrics: Record<string, any>;
-  status: DataStatus;
-  
-  // Backward-compatibility properties
+  intermediate_metrics?: Record<string, any>;
+  observed_at?: number;
   strategy_id?: string;
   strategy_name?: string;
-  observed_at?: number;
   source_ids?: string[];
   method_version?: string;
 }
 
-export interface DECAggregate {
-  value: number | null;
-  aggregation: string;
-  validator_count: number;
-  dispersion: number;
-  quorum_met: boolean;
-  status: DataStatus;
+// Backward compatibility alias
+export type ValidatorObservation = OracleObservation;
+
+export interface ConsensusResult {
+  consensus_price: number | null;
+  cluster_size: number;
+  total_eligible: number;
+  agreement_ratio: number;
+  cluster_min?: number | null;
+  cluster_max?: number | null;
+  cluster_spread_pct: number;
+  has_strong_consensus: boolean;
+  cluster_members: string[];
+  outlier_members: string[];
+
+  // Backward compatibility properties
+  value?: number | null;
+  aggregation?: string;
+  validator_count?: number;
+  dispersion?: number;
+  quorum_met?: boolean;
+  status?: DataStatus;
   eligible_lane_ids?: string[];
   lane_estimates?: Record<string, number | null>;
-  lane_results?: Array<Record<string, any>>;
+}
+
+// Backward compatibility alias
+export type DECAggregate = ConsensusResult;
+
+export interface RiskDecisionResult {
+  state: string;
+  oracle_status: OracleStatus;
+  final_price: number | null;
+  multipli_deviation_pct: number;
+  is_conservative_applied: boolean;
+  policy_rationale: string;
+  effective_ltv: number;
+  protocol_state: string;
+
+  // Backward compatibility properties
+  policy?: DecisionPolicy | string;
+  decision?: string;
+  action?: string;
+  dispute_status?: string;
+  selected_source?: string;
+  confidence?: number | null;
+  reason_codes?: string[];
+  policy_version?: string;
+}
+
+// Backward compatibility alias
+export type DecisionResult = RiskDecisionResult;
+
+export interface OSMFeed {
+  value: number;
+  timestamp: number;
+  source: string;
+  status: DataStatus;
+  description?: string;
 }
 
 export interface MarketObservation {
@@ -193,19 +247,6 @@ export interface EvidenceRecord {
   reason_codes: string[];
   lane_anomalies?: Record<string, boolean>;
   conflict_indicators?: Record<string, boolean>;
-  evidence_timestamp?: number;
-}
-
-export interface DecisionResult {
-  policy: DecisionPolicy | string;
-  decision?: string;
-  action?: string;
-  dispute_status?: string;
-  final_price: number | null;
-  selected_source: 'P_OSM' | 'P_DEC' | 'P_MARKET' | 'RESTRICT_HALT' | 'RESTRICT_COLLATERAL_CEILING' | 'CIRCUIT_BREAKER_HALT' | 'PENDING' | string;
-  confidence: number | null;
-  reason_codes: string[];
-  policy_version: string;
 }
 
 export interface CollateralImpact {
@@ -224,11 +265,11 @@ export interface ScenarioRecord {
   asset: string;
   window: TimeWindow;
   p_osm: OSMFeed;
-  validators: ValidatorObservation[];
-  p_dec: DECAggregate;
+  validators: OracleObservation[];
+  p_dec: ConsensusResult;
   p_market: MarketObservation;
   evidence: EvidenceRecord;
-  decision: DecisionResult;
+  decision: RiskDecisionResult;
   collateral: CollateralImpact;
   intermediate_telemetry?: Record<string, any>;
 }
@@ -240,7 +281,7 @@ export interface ScenarioListItem {
   asset: string;
   p_osm_initial: number;
   expected_market: number;
-  category: 'NORMAL' | 'FLASH_SPIKE' | 'POISONED_VALIDATOR' | 'VALIDATOR_OUTAGE' | 'SLOW_DRIFT' | 'RWA_DEPEG' | string;
+  category: 'NORMAL' | 'FLASH_CRASH' | 'POISONED_VALIDATOR' | 'MARKET_DISLOCATION' | 'OSM_FAILURE' | string;
   ltv_default: number;
 }
 
@@ -254,21 +295,17 @@ export interface SimulationEvent {
 export interface TimeSeriesPoint {
   minute: number;
   time_label: string;
-  p_osm: number | null;
-  p_dec: number;
-  p_market: number;
-  uncertainty_lower: number;
-  uncertainty_upper: number;
-}
+  p_multipli?: number | null;
+  p_consensus?: number | null;
+  p_market?: number | null;
+  cluster_min?: number | null;
+  cluster_max?: number | null;
 
-export interface ValidatorNodeStatus {
-  node_id: string;
-  lane_id: number;
-  methodology: string;
-  operator_id: string;
-  status: 'ACTIVE' | 'AWAITING_CADENCE' | 'OFFLINE';
-  last_seen_sec: number;
-  quote: number | null;
+  // Backward compatibility fields
+  p_osm?: number | null;
+  p_dec?: number;
+  uncertainty_lower?: number;
+  uncertainty_upper?: number;
 }
 
 export interface UserPositionState {
@@ -288,16 +325,24 @@ export interface UserPositionState {
 }
 
 export interface CausalChainTelemetry {
-  market_price: number | null;
-  osm_price: number | null;
-  dec_price: number | null;
-  deviation_detected_pct: number;
-  anomaly_score: number;
-  oracle_status: string;
-  oracle_decision: string;
+  multipli_price?: number | null;
+  consensus_price?: number | null;
+  market_price?: number | null;
+  deviation_pct: number;
+  agreement_ratio: number;
+  oracle_state: string;
+  selected_price?: number | null;
   effective_ltv: number;
   max_borrow_capacity: number;
   position_status: string;
+
+  // Legacy aliases
+  osm_price?: number | null;
+  dec_price?: number | null;
+  deviation_detected_pct?: number;
+  anomaly_score?: number;
+  oracle_status?: string;
+  oracle_decision?: string;
 }
 
 export interface SimulationSnapshot {
@@ -313,27 +358,34 @@ export interface SimulationSnapshot {
   is_running: boolean;
   is_paused: boolean;
   is_finalized: boolean;
-  total_observations: number;
-  active_validators_count: number;
-  total_validators_count: number;
-  active_lanes_count: number;
-  total_lanes_count: number;
   current_block: string;
-  ltv: number;
-  p_osm: OSMFeed;
-  p_dec: DECAggregate;
-  p_dec_uncertainty_half_width: number;
-  p_market: MarketObservation;
-  evidence: EvidenceRecord;
-  decision: DecisionResult;
-  collateral: CollateralImpact;
-  position?: UserPositionState;
-  causal_chain?: CausalChainTelemetry;
-  validators: ValidatorObservation[];
-  validator_nodes: ValidatorNodeStatus[];
-  lane_telemetry: Record<string, any>;
+  ltv?: number;
+
+  // Cross-Oracle specific properties
+  oracle_sources: OracleObservation[];
+  multipli_observation?: OracleObservation | null;
+  market_observation?: OracleObservation | null;
+  consensus: ConsensusResult;
+  decision: RiskDecisionResult;
+  position: UserPositionState;
+  causal_chain: CausalChainTelemetry;
   time_series: TimeSeriesPoint[];
   events: SimulationEvent[];
   interpretation: string;
-}
 
+  // Backward-compatibility properties
+  total_observations?: number;
+  active_validators_count?: number;
+  total_validators_count?: number;
+  active_lanes_count?: number;
+  total_lanes_count?: number;
+  p_osm?: OSMFeed;
+  p_dec?: ConsensusResult;
+  p_dec_uncertainty_half_width?: number;
+  p_market?: MarketObservation;
+  evidence?: EvidenceRecord;
+  collateral?: CollateralImpact;
+  validators?: OracleObservation[];
+  validator_nodes?: any[];
+  lane_telemetry?: Record<string, any>;
+}

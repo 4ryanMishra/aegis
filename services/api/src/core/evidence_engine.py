@@ -69,7 +69,8 @@ class EvidenceEngine:
         ou_structural_state: Optional[str] = None
 
         for v in validators:
-            methodology_statuses[v.methodology] = v.decision
+            meth_key = v.methodology or getattr(v, "strategy_id", None) or getattr(v, "validator_id", None) or "unknown"
+            methodology_statuses[meth_key] = v.decision
 
             diag = getattr(v, "diagnostic_evidence", {}) or v.intermediate_metrics
 

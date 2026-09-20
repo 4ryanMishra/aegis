@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScenarioListItem,
-  ValidatorObservation,
+  OracleObservation,
   SimulationSnapshot,
   ScenarioRecord,
 } from '@/lib/types';
@@ -19,18 +19,18 @@ import {
   updateSimulationPosition,
 } from '@/lib/api-client';
 import { TerminalHeader } from '@/components/terminal-header';
-import { OracleStrip } from '@/components/oracle-strip';
-import { VerificationTimeline } from '@/components/verification-timeline';
-import { ValidatorMatrix } from '@/components/validator-matrix';
+import { MainPriceComparison } from '@/components/main-price-comparison';
+import { CausalChainPanel } from '@/components/causal-chain-panel';
+import { OracleFeedMatrix } from '@/components/oracle-feed-matrix';
+import { ConsensusPanel } from '@/components/consensus-panel';
+import { TransparencyPanel } from '@/components/transparency-panel';
+import { UserPositionCard } from '@/components/user-position-card';
 import { ComparisonChart } from '@/components/comparison-chart';
-import { DecisionPanel } from '@/components/decision-panel';
-import { ProvenanceDrawer } from '@/components/provenance-drawer';
 import { LiveEventFeed } from '@/components/live-event-feed';
 import { SystemInterpretation } from '@/components/system-interpretation';
-import { UserPositionCard } from '@/components/user-position-card';
-import { CausalChainPanel } from '@/components/causal-chain-panel';
+import { ProvenanceDrawer } from '@/components/provenance-drawer';
 
-export default function RiskTerminalPage() {
+export default function OracleControlRoomPage() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scen_normal');
   const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
@@ -40,7 +40,7 @@ export default function RiskTerminalPage() {
   
   // Drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
-  const [inspectTarget, setInspectTarget] = useState<string | ValidatorObservation | null>(null);
+  const [inspectTarget, setInspectTarget] = useState<string | OracleObservation | null>(null);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -57,8 +57,8 @@ export default function RiskTerminalPage() {
         if (initialState) {
           setSnapshot(initialState);
           setSelectedScenarioId(initialState.scenario_id);
-          setLtv(initialState.ltv);
-          setSpeedMultiplier(initialState.speed_multiplier);
+          setLtv(initialState.decision?.effective_ltv || initialState.ltv || 0.80);
+          setSpeedMultiplier(initialState.speed_multiplier || 60);
         } else if (list.length > 0) {
           setSelectedScenarioId(list[0].scenario_id);
           if (list[0].ltv_default) setLtv(list[0].ltv_default);
@@ -198,7 +198,7 @@ export default function RiskTerminalPage() {
     }
   };
 
-  const handleInspect = (target: string | ValidatorObservation) => {
+  const handleInspect = (target: string | OracleObservation) => {
     setInspectTarget(target);
     setIsDrawerOpen(true);
   };
@@ -223,12 +223,12 @@ export default function RiskTerminalPage() {
   if (!snapshot) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center text-xs font-mono text-slate-500">
-        INITIALIZING AEGIS VERIFICATION ENGINE RUNTIME...
+        INITIALIZING AEGIS CROSS-ORACLE RISK ENGINE RUNTIME...
       </div>
     );
   }
 
-  // Cast snapshot to ScenarioRecord for child components that expect it
+  // Cast snapshot to ScenarioRecord for child components expecting legacy structure
   const scenarioRecord: ScenarioRecord = {
     scenario_id: snapshot.scenario_id,
     title: snapshot.title,
@@ -241,20 +241,45 @@ export default function RiskTerminalPage() {
       elapsed_seconds: snapshot.simulation_time_seconds,
       is_finalized: snapshot.is_finalized,
     },
-    p_osm: snapshot.p_osm,
-    validators: snapshot.validators,
-    p_dec: snapshot.p_dec,
-    p_market: snapshot.p_market,
-    evidence: snapshot.evidence,
+    p_osm: snapshot.p_osm || {
+      value: snapshot.multipli_observation?.price || 4050.0,
+      timestamp: 1774000000,
+      source: 'multipli_osm',
+      status: 'SIMULATED',
+    },
+    validators: snapshot.oracle_sources || [],
+    p_dec: snapshot.consensus,
+    p_market: snapshot.p_market || {
+      value: snapshot.market_observation?.price || 4050.0,
+      timestamp: 1774000000,
+      source: 'simulated_binance_adapter',
+      status: 'SIMULATED',
+      is_offchain: true,
+    },
+    evidence: snapshot.evidence || {
+      d_osm_market: null,
+      d_dec_market: null,
+      d_osm_dec: null,
+      validator_dispersion: snapshot.consensus.cluster_spread_pct / 100,
+      agreement_ratio: snapshot.consensus.agreement_ratio,
+      oracle_status: snapshot.decision.oracle_status,
+      anomaly_score: snapshot.decision.multipli_deviation_pct / 100,
+      reason_codes: [],
+    },
     decision: snapshot.decision,
-    collateral: snapshot.collateral,
-    intermediate_telemetry: snapshot.lane_telemetry,
+    collateral: snapshot.collateral || {
+      ltv: snapshot.decision.effective_ltv,
+      baseline_value: (snapshot.multipli_observation?.price || 4050.0) * (snapshot.position?.collateral_amount || 10.0),
+      aegis_value: (snapshot.decision.final_price || 4050.0) * (snapshot.position?.collateral_amount || 10.0),
+      difference: Math.max(0, ((snapshot.multipli_observation?.price || 4050.0) - (snapshot.decision.final_price || 4050.0)) * (snapshot.position?.collateral_amount || 10.0)),
+      risk_exposure_pct: snapshot.decision.multipli_deviation_pct,
+    },
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       
-      {/* Top Application Header */}
+      {/* Top Header */}
       <TerminalHeader
         scenarios={scenarios}
         selectedScenarioId={selectedScenarioId}
@@ -271,15 +296,15 @@ export default function RiskTerminalPage() {
         elapsedMinutes={snapshot.elapsed_minutes}
         speedMultiplier={speedMultiplier}
         onChangeSpeed={handleChangeSpeed}
-        activeValidatorsCount={snapshot.active_validators_count}
-        totalValidatorsCount={snapshot.total_validators_count}
-        totalObservations={snapshot.total_observations}
+        activeValidatorsCount={snapshot.consensus.cluster_size || snapshot.oracle_sources?.length || 6}
+        totalValidatorsCount={snapshot.consensus.total_eligible || 6}
+        totalObservations={snapshot.time_series?.length || 60}
         currentBlock={snapshot.current_block}
         isFinalized={snapshot.is_finalized}
         isLoading={isLoading}
       />
 
-      {/* Main Terminal Workspace */}
+      {/* Main Control Room Layout */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto p-6 space-y-5">
         
         {/* Scenario Overview Banner */}
@@ -294,31 +319,25 @@ export default function RiskTerminalPage() {
             </p>
           </div>
           <div className="text-[11px] font-mono text-slate-500 bg-slate-50 px-3 py-1.5 rounded border border-borderHairline whitespace-nowrap">
-            WINDOW ID: {snapshot.scenario_id}
+            SCENARIO: {snapshot.scenario_id}
           </div>
         </div>
 
-        {/* 1. Oracle State Strip */}
-        <OracleStrip
-          scenario={scenarioRecord}
-          uncertaintyHalfWidth={snapshot.p_dec_uncertainty_half_width}
-          onInspect={handleInspect}
+        {/* 1. Main Price Comparison Strip (Multipli vs Consensus vs Spot vs Authoritative Valuation) */}
+        <MainPriceComparison
+          snapshot={snapshot}
+          onInspectTarget={handleInspect}
         />
 
-        {/* 2. Causal Chain Pipeline (Oracle Evidence -> Risk State -> Position Health) */}
+        {/* 2. End-to-End Causal Pipeline */}
         <CausalChainPanel
           snapshot={snapshot}
         />
 
-        {/* 3. Verification Window Progression Timeline */}
-        <VerificationTimeline
-          scenario={scenarioRecord}
-        />
-
-        {/* 4. Main Operational Grid */}
+        {/* 3. Main Operational Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           
-          {/* Left Column: Collateral Position, Valuation Chart & Validator Matrix (7 cols) */}
+          {/* Left Column: Collateral Vault, Valuation Trajectory & Multi-Oracle Feed Matrix (7 cols) */}
           <div className="lg:col-span-7 space-y-5">
             
             {/* Downstream RWAUSD Collateral Vault Card */}
@@ -328,43 +347,49 @@ export default function RiskTerminalPage() {
               onUpdatePosition={handleUpdatePosition}
             />
 
-            {/* Live Time Series Stream Chart */}
+            {/* Time Series Comparison Chart */}
             <ComparisonChart
-              scenario={scenarioRecord}
+              snapshot={snapshot}
               timeSeries={snapshot.time_series}
-              uncertaintyHalfWidth={snapshot.p_dec_uncertainty_half_width}
             />
 
-            {/* Validator Matrix */}
-            <ValidatorMatrix
-              validators={scenarioRecord.validators}
-              onInspectValidator={handleInspect}
+            {/* Multi-Oracle On-Chain Observation Matrix */}
+            <OracleFeedMatrix
+              snapshot={snapshot}
+              onInspectOracle={handleInspect}
             />
 
           </div>
 
-          {/* Right Column: Interpretation, Live Events & Decision Panel (5 cols) */}
+          {/* Right Column: System Interpretation, Audit Transparency & Consensus Telemetry (5 cols) */}
           <div className="lg:col-span-5 space-y-5">
             
-            {/* Dynamic System Interpretation ("What Just Happened?") */}
+            {/* Dynamic System Interpretation */}
             <SystemInterpretation
               interpretation={snapshot.interpretation}
-              oracleStatus={snapshot.evidence.oracle_status}
+              oracleStatus={snapshot.decision.oracle_status || snapshot.decision.state}
               decision={snapshot.decision}
-              collateral={snapshot.collateral}
+              collateral={scenarioRecord.collateral}
               isFinalized={snapshot.is_finalized}
               simulationTimeFormatted={snapshot.simulation_time_formatted}
             />
 
-            {/* Live Event Stream Panel */}
+            {/* Transparency & Audit Rationale ("Why AEGIS Decided This") */}
+            <TransparencyPanel
+              snapshot={snapshot}
+            />
+
+            {/* Price-Band Agreement Clustering Telemetry */}
+            <ConsensusPanel
+              consensus={snapshot.consensus}
+              decision={snapshot.decision}
+              multipli={snapshot.multipli_observation}
+            />
+
+            {/* Live Event Stream Feed */}
             <LiveEventFeed
               events={snapshot.events}
               isRunning={snapshot.is_running}
-            />
-
-            {/* Decision & Collateral Impact Panel */}
-            <DecisionPanel
-              scenario={scenarioRecord}
             />
 
           </div>
@@ -373,7 +398,7 @@ export default function RiskTerminalPage() {
 
       </main>
 
-      {/* Provenance Audit Drawer */}
+      {/* Audit & Provenance Drawer */}
       <ProvenanceDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
@@ -384,14 +409,18 @@ export default function RiskTerminalPage() {
       {/* Footer */}
       <footer className="border-t border-borderHairline bg-surface px-6 py-3 text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div className="flex items-center space-x-2">
-          <span className="font-bold text-slate-800 font-mono">AEGIS v0.1.0-mvp</span>
+          <span className="font-bold text-slate-800 font-mono">AEGIS v0.2.0</span>
           <span>&bull;</span>
-          <span>Adaptive Oracle Verification Engine Research Prototype</span>
+          <span>Cross-Oracle Agreement & Risk-Resolution Layer</span>
         </div>
         <div className="flex items-center space-x-4 font-mono">
-          <span>P_OSM: Baseline</span>
-          <span>P_DEC: Validator Median</span>
-          <span>P_MARKET: Off-Chain Observation</span>
+          <span>Multipli OSM</span>
+          <span>Chainlink</span>
+          <span>Pyth</span>
+          <span>Chronicle</span>
+          <span>RedStone</span>
+          <span>Supra</span>
+          <span>API3</span>
         </div>
       </footer>
 

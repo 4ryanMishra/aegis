@@ -24,7 +24,8 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
       const s = m.scale_s ?? 0;
       return `Outliers: ${outliers} | s: ${s.toFixed(3)}`;
     } else if (meth.includes('JENSEN') || meth.includes('jsd')) {
-      const dMean = m.mean_divergence_per_lane?.[v.lane_id] ?? 0.012;
+      const laneKey = v.lane_id ? String(v.lane_id) : 'lane-3';
+      const dMean = m.mean_divergence_per_lane?.[laneKey] ?? 0.012;
       return `D̄_JS: ${dMean.toFixed(3)}`;
     } else if (meth.includes('ORNSTEIN') || meth.includes('ou')) {
       if (!m.is_rwa || !m.has_anchor || v.decision === 'NOT_APPLICABLE') return 'NOT APPLICABLE';
@@ -47,13 +48,14 @@ export const ValidatorMatrix: React.FC<ValidatorMatrixProps> = ({
       );
     }
 
-    const isAnomalous = v.anomaly_score > 0.4 || v.decision.includes('GATED') || v.decision.includes('OUTLIER') || v.decision.includes('ALERT') || v.decision.includes('CANDIDATE') || v.decision.includes('DISAGREEMENT');
+    const decStr = v.decision || 'VERIFIED';
+    const isAnomalous = (v.anomaly_score || 0) > 0.4 || decStr.includes('GATED') || decStr.includes('OUTLIER') || decStr.includes('ALERT') || decStr.includes('CANDIDATE') || decStr.includes('DISAGREEMENT');
 
     if (isAnomalous) {
       return (
         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-300">
           <ShieldAlert className="w-3 h-3 text-amber-600" />
-          {v.decision.replace(/_/g, ' ')}
+          {decStr.replace(/_/g, ' ')}
         </span>
       );
     }

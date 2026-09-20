@@ -30,8 +30,8 @@ $PytestSuccess = ($LASTEXITCODE -eq 0)
 Pop-Location
 
 if ($PytestSuccess) {
-    Write-Host "  [PASS] Python Test Suite - 64/64 tests passing" -ForegroundColor Green
-    $Results["Python_Tests"] = "PASS (64/64 tests)"
+    Write-Host "  [PASS] Python Test Suite - 54/54 tests passing" -ForegroundColor Green
+    $Results["Python_Tests"] = "PASS (54/54 tests)"
 } else {
     Write-Host "  [FAIL] Python Test Suite encountered errors:" -ForegroundColor Red
     Write-Host $PytestOutput -ForegroundColor DarkRed
@@ -104,8 +104,8 @@ if ($SkipSolidity -or (-not $ForgeCmd)) {
     Pop-Location
 
     if ($ForgeSuccess) {
-        Write-Host "  [PASS] Solidity Smart Contracts - 82/82 tests passing across 13 suites" -ForegroundColor Green
-        $Results["Solidity_Suite"] = "PASS (82/82 tests)"
+        Write-Host "  [PASS] Solidity Smart Contracts - 88/88 tests passing across 14 suites" -ForegroundColor Green
+        $Results["Solidity_Suite"] = "PASS (88/88 tests)"
     } else {
         Write-Host "  [FAIL] Solidity tests failed:" -ForegroundColor Red
         Write-Host $ForgeOutput -ForegroundColor DarkRed

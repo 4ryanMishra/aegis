@@ -2,90 +2,89 @@
 pragma solidity ^0.8.24;
 
 import {IAEGISPriceFeed} from "./interfaces/IAEGISPriceFeed.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
+import {OracleRegistry} from "./OracleRegistry.sol";
+import {ConsensusEngine} from "./ConsensusEngine.sol";
+import {RiskDecisionEngine} from "./RiskDecisionEngine.sol";
 
 /// @title AEGISPriceRouter
-/// @notice Single authoritative price router exposing verified P_FINAL to downstream protocols.
-/// @dev Downstream contracts (e.g. Multipli Ledger) query getPrice(assetId).
-/// Only the authorized AEGISVerificationManager can write finalized prices.
-contract AEGISPriceRouter is IAEGISPriceFeed, Ownable {
-    struct PriceRecord {
-        uint256 price;                     // 18-decimal WAD
-        OracleStatus status;               // Health and dispute classification
-        uint256 timestamp;                 // Block timestamp of finalization
-        uint256 roundId;                   // Canonical verification round ID
-    }
+/// @notice Central on-chain cross-oracle cross-checking router exposing authoritative verified prices to downstream protocols.
+contract AEGISPriceRouter is IAEGISPriceFeed {
+    OracleRegistry public registry;
+    ConsensusEngine public consensusEngine;
+    RiskDecisionEngine public decisionEngine;
 
+    // Backward compatibility and overrides
     address public verificationManager;
-    uint256 public defaultMaxStaleness = 7200; // 2 hours default maximum price age
-
-    mapping(bytes32 => PriceRecord) private _latestPrices;
+    uint256 public constant DEFAULT_MAX_STALENESS = 7200; // 2 hours default
     mapping(bytes32 => uint256) public assetMaxStaleness;
+    mapping(bytes32 => uint256) public manualOverridePrice;
+    mapping(bytes32 => OracleStatus) public manualOverrideStatus;
+    mapping(bytes32 => uint256) public manualOverrideTimestamp;
+    mapping(bytes32 => bool) public hasManualOverride;
 
-    event PriceUpdated(
+    // Optional simulated market reference
+    uint256 public simulatedMarketRefPrice;
+    bool public hasSimulatedMarketRef;
+
+    address public owner;
+
+    event VerifiedPriceEvaluated(
         bytes32 indexed assetId,
-        uint256 indexed roundId,
-        uint256 price,
+        uint256 finalPrice,
         OracleStatus status,
-        uint256 timestamp
+        uint256 consensusPrice,
+        uint256 multipliPrice,
+        uint256 deviationBps
     );
-    event VerificationManagerUpdated(address indexed newManager);
-    event StalenessConfigured(bytes32 indexed assetId, uint256 maxStaleness);
+    event PriceUpdated(bytes32 indexed assetId, uint256 roundId, uint256 price, OracleStatus status, uint256 timestamp);
 
     error UnauthorizedCaller(address caller);
+    error PriceStale(bytes32 assetId, uint256 age, uint256 maxStaleness);
     error NoPriceAvailable(bytes32 assetId);
-    error PriceStale(bytes32 assetId, uint256 age, uint256 maxAllowed);
-    error InvalidPrice();
 
-    modifier onlyManager() {
-        if (msg.sender != verificationManager) revert UnauthorizedCaller(msg.sender);
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
         _;
     }
 
-    constructor(address initialOwner) Ownable(initialOwner) {}
-
-    error InvalidAddress();
-
-    /// @notice Sets the authorized AEGISVerificationManager
-    function setVerificationManager(address newManager) external onlyOwner {
-        if (newManager == address(0)) revert InvalidAddress();
-        verificationManager = newManager;
-        emit VerificationManagerUpdated(newManager);
+    constructor(address _owner) {
+        owner = _owner != address(0) ? _owner : msg.sender;
     }
 
-    /// @notice Configures custom maximum staleness per asset
-    function setAssetMaxStaleness(bytes32 assetId, uint256 maxStaleness) external onlyOwner {
-        assetMaxStaleness[assetId] = maxStaleness;
-        emit StalenessConfigured(assetId, maxStaleness);
+    function setRegistry(address _registry) external onlyOwner {
+        registry = OracleRegistry(_registry);
     }
 
-    /// @notice Sets default maximum price age
-    function setDefaultMaxStaleness(uint256 newDefault) external onlyOwner {
-        defaultMaxStaleness = newDefault;
+    function setConsensusEngine(address _consensusEngine) external onlyOwner {
+        consensusEngine = ConsensusEngine(_consensusEngine);
     }
 
-    /// @notice Updates the stored finalized price for an asset upon round completion
-    /// @param assetId Asset identifier
-    /// @param roundId Canonical verification round ID
-    /// @param price The authoritative P_FINAL price
-    /// @param status The safety status from the Decision Engine
-    function updatePrice(
-        bytes32 assetId,
-        uint256 roundId,
-        uint256 price,
-        OracleStatus status
-    ) external onlyManager {
-        if (price == 0 && status != OracleStatus.HALTED_CIRCUIT_BREAKER) {
-            revert InvalidPrice();
+    function setDecisionEngine(address _decisionEngine) external onlyOwner {
+        decisionEngine = RiskDecisionEngine(_decisionEngine);
+    }
+
+    function setVerificationManager(address _vm) external onlyOwner {
+        verificationManager = _vm;
+    }
+
+    function setAssetMaxStaleness(bytes32 _assetId, uint256 _maxStaleness) external onlyOwner {
+        assetMaxStaleness[_assetId] = _maxStaleness;
+    }
+
+    function setSimulatedMarketReference(uint256 _price, bool _active) external onlyOwner {
+        simulatedMarketRefPrice = _price;
+        hasSimulatedMarketRef = _active;
+    }
+
+    function updatePrice(bytes32 assetId, uint256 roundId, uint256 price, OracleStatus status) external {
+        if (verificationManager != address(0) && msg.sender != verificationManager && msg.sender != owner) {
+            revert UnauthorizedCaller(msg.sender);
         }
-
-        _latestPrices[assetId] = PriceRecord({
-            price: price,
-            status: status,
-            timestamp: block.timestamp,
-            roundId: roundId
-        });
-
+        manualOverridePrice[assetId] = price;
+        manualOverrideStatus[assetId] = status;
+        manualOverrideTimestamp[assetId] = block.timestamp;
+        hasManualOverride[assetId] = true;
         emit PriceUpdated(assetId, roundId, price, status, block.timestamp);
     }
 
@@ -95,23 +94,70 @@ contract AEGISPriceRouter is IAEGISPriceFeed, Ownable {
         OracleStatus status,
         uint256 timestamp
     ) {
-        PriceRecord memory record = _latestPrices[assetId];
-        if (record.timestamp == 0) revert NoPriceAvailable(assetId);
-
-        uint256 allowedAge = assetMaxStaleness[assetId] > 0
-            ? assetMaxStaleness[assetId]
-            : defaultMaxStaleness;
-
-        uint256 age = block.timestamp - record.timestamp;
-        if (age > allowedAge) {
-            revert PriceStale(assetId, age, allowedAge);
+        if (address(registry) == address(0)) {
+            return _getManualPrice(assetId);
         }
 
-        return (record.price, record.status, record.timestamp);
+        (
+            IOracleAdapter.OracleObservation[] memory obs,
+            IOracleAdapter.OracleObservation memory multipliObs,
+            bool hasMultipli
+        ) = registry.getAllObservations(assetId);
+
+        if (obs.length == 0 && !hasMultipli) {
+            return _getManualPrice(assetId);
+        }
+
+        ConsensusEngine.ConsensusResult memory consensus = consensusEngine.computeConsensus(obs);
+
+        RiskDecisionEngine.DecisionOutput memory decision = decisionEngine.evaluateDecision(
+            consensus,
+            multipliObs,
+            hasMultipli,
+            simulatedMarketRefPrice,
+            hasSimulatedMarketRef
+        );
+
+        return (decision.finalPrice, decision.oracleStatus, block.timestamp);
     }
 
-    /// @notice Returns full price record including round ID
-    function getPriceRecord(bytes32 assetId) external view returns (PriceRecord memory) {
-        return _latestPrices[assetId];
+    function _getManualPrice(bytes32 assetId) internal view returns (uint256, OracleStatus, uint256) {
+        if (!hasManualOverride[assetId]) {
+            revert NoPriceAvailable(assetId);
+        }
+        if (manualOverridePrice[assetId] == 0 && manualOverrideStatus[assetId] != OracleStatus.HALTED_CIRCUIT_BREAKER) {
+            revert NoPriceAvailable(assetId);
+        }
+        uint256 maxStaleness = assetMaxStaleness[assetId] > 0 ? assetMaxStaleness[assetId] : DEFAULT_MAX_STALENESS;
+        uint256 age = block.timestamp >= manualOverrideTimestamp[assetId] ? block.timestamp - manualOverrideTimestamp[assetId] : 0;
+        if (age > maxStaleness) {
+            revert PriceStale(assetId, age, maxStaleness);
+        }
+        return (manualOverridePrice[assetId], manualOverrideStatus[assetId], manualOverrideTimestamp[assetId]);
+    }
+
+    /// @notice Comprehensive audit getter providing full on-chain provenance for UI and transparency panels
+    function getDetailedAudit(bytes32 assetId) external view returns (
+        IOracleAdapter.OracleObservation[] memory observations,
+        IOracleAdapter.OracleObservation memory multipliObs,
+        bool hasMultipli,
+        ConsensusEngine.ConsensusResult memory consensus,
+        RiskDecisionEngine.DecisionOutput memory decision
+    ) {
+        if (address(registry) != address(0)) {
+            (observations, multipliObs, hasMultipli) = registry.getAllObservations(assetId);
+            if (address(consensusEngine) != address(0)) {
+                consensus = consensusEngine.computeConsensus(observations);
+            }
+            if (address(decisionEngine) != address(0)) {
+                decision = decisionEngine.evaluateDecision(
+                    consensus,
+                    multipliObs,
+                    hasMultipli,
+                    simulatedMarketRefPrice,
+                    hasSimulatedMarketRef
+                );
+            }
+        }
     }
 }

@@ -1,119 +1,108 @@
 """
-AEGIS Real-Time Simulation Engine (Continuous Verification Window).
-Provides:
-- Authoritative deterministic simulation clock with configurable acceleration (e.g. 60x)
-- Deterministic seeded market observation stream (Ornstein-Uhlenbeck / Jump trajectories)
-- Asynchronous validator node arrival cadences across all 5 methodology lanes
-- Real-time time series history buffer for live charting
-- Dynamic live event stream generated from actual state transitions
-- Contextual dynamic system interpretation ("What Just Happened?")
+AEGIS Simulation Engine (Phase 5 - Cross-Oracle Architecture).
+Deterministic, seeded, real-time accelerated simulation of multi-oracle cross-checking.
 """
 
-from typing import Dict, List, Optional, Any, Tuple
 import time
 import math
-import numpy as np
-from pathlib import Path
-import json
+import random
+from typing import Dict, List, Optional, Any
 
-from ..models.schema import (
-    DataStatus,
-    OracleStatus,
-    DecisionPolicy,
-    TimeWindow,
-    OSMFeed,
-    DECAggregate,
-    MarketObservation,
-    EvidenceRecord,
-    DecisionResult,
-    CollateralImpact,
-    ValidatorResult,
-    MethodologyRole,
-)
-from .evidence_engine import EvidenceEngine
-from .decision_engine import DecisionEngine
-from .aggregator import P_DECAggregator
-from ..validators.strategies import (
-    KalmanStrategy,
-    HuberStrategy,
-    JSDStrategy,
-    OUStrategy,
-    CUSUMStrategy,
-)
-from ..validators.base import ReferenceContext
+from services.api.src.oracles.consensus_engine import ConsensusEngine, OracleObservationData
+from services.api.src.oracles.risk_decision_engine import RiskDecisionEngine, RiskDecisionOutput
 
 
 class SimulationEngine:
     """
-    Authoritative stateful simulation engine for AEGIS verification windows.
-    Runs continuously, ticks with wall-clock time multiplied by speed_multiplier,
-    and produces deterministic, reproducible live stream data.
+    Authoritative stateful simulation runtime managing multi-oracle feeds, consensus clustering,
+    risk decision policies, and downstream collateralized protocol positions.
     """
 
-    def __init__(self, fixtures_path: Optional[Path] = None):
-        self.evidence_engine = EvidenceEngine()
-        self.decision_engine = DecisionEngine()
-        self.aggregator = P_DECAggregator(min_quorum=3)
-
-        # Methodology instances
-        self.kalman_strategy = KalmanStrategy()
-        self.huber_strategy = HuberStrategy()
-        self.jsd_strategy = JSDStrategy()
-        self.ou_strategy = OUStrategy()
-        self.cusum_strategy = CUSUMStrategy()
-
-        # Load fixtures
-        self.fixtures: Dict[str, dict] = {}
-        if fixtures_path is None:
-            fixtures_path = Path(__file__).resolve().parents[4] / "shared" / "fixtures" / "baseline_scenarios.json"
-        if fixtures_path.exists():
-            with open(fixtures_path, "r", encoding="utf-8") as f:
-                scenarios = json.load(f)
-                for s in scenarios:
-                    self.fixtures[s["scenario_id"]] = s
+    def __init__(self):
+        self.consensus_engine = ConsensusEngine(cluster_tolerance_pct=0.50, min_quorum=3, min_agreement_ratio=0.60)
+        self.decision_engine = RiskDecisionEngine(normal_threshold_pct=0.50, deviation_threshold_pct=1.00, critical_threshold_pct=3.00)
 
         # Simulation Clock & State
         self.scenario_id: str = "scen_normal"
         self.sim_time_seconds: float = 0.0
         self.window_duration_seconds: int = 3600
-        self.speed_multiplier: float = 60.0  # 1s real = 1m simulated (60s full window)
+        self.speed_multiplier: float = 60.0
         self.is_running: bool = False
         self.is_paused: bool = False
         self.is_finalized: bool = False
         self.last_wall_time: Optional[float] = None
+        self.seed: int = 42
+
         # User Collateral Position State (MockRWAUSDProtocol)
         self.user_address: str = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
         self.collateral_asset: str = "Tokenized Gold (XAU)"
         self.collateral_amount: float = 10.0  # 10.00 oz default
-        self.debt_amount: float = 700.0        # 700.00 RWAUSD default
+        self.debt_amount: float = 28000.0     # 28,000.00 RWAUSD default
+        self.ltv: float = 0.80
 
-        # Validator Node Definitions (10 simulated nodes across operators and lanes)
-        self.node_definitions = [
-            {"node_id": "val_alpha_k1", "lane_id": 1, "methodology": "KALMAN_1D", "operator_id": "operator_alpha", "cadence_sec": 120, "offset_sec": 10},
-            {"node_id": "val_beta_k1",  "lane_id": 1, "methodology": "KALMAN_1D", "operator_id": "operator_beta",  "cadence_sec": 120, "offset_sec": 70},
-            {"node_id": "val_gamma_h2", "lane_id": 2, "methodology": "HUBER_IRLS", "operator_id": "operator_gamma", "cadence_sec": 120, "offset_sec": 20},
-            {"node_id": "val_delta_h2", "lane_id": 2, "methodology": "HUBER_IRLS", "operator_id": "operator_delta", "cadence_sec": 120, "offset_sec": 80},
-            {"node_id": "val_eps_j3",   "lane_id": 3, "methodology": "JSD",        "operator_id": "operator_epsilon", "cadence_sec": 180, "offset_sec": 30},
-            {"node_id": "val_zeta_ou4", "lane_id": 4, "methodology": "OU_RESIDUAL","operator_id": "operator_zeta",    "cadence_sec": 180, "offset_sec": 45},
-            {"node_id": "val_eta_c5",   "lane_id": 5, "methodology": "CUSUM",      "operator_id": "operator_eta",     "cadence_sec": 60,  "offset_sec": 15},
-            {"node_id": "val_theta_c5", "lane_id": 5, "methodology": "CUSUM",      "operator_id": "operator_theta",   "cadence_sec": 60,  "offset_sec": 45},
-            {"node_id": "val_iota_k1",  "lane_id": 1, "methodology": "KALMAN_1D", "operator_id": "operator_iota",   "cadence_sec": 150, "offset_sec": 90},
-            {"node_id": "val_kappa_h2", "lane_id": 2, "methodology": "HUBER_IRLS", "operator_id": "operator_kappa",  "cadence_sec": 150, "offset_sec": 110},
-        ]
+        # Scenario Fixtures
+        self.fixtures = {
+            "scen_normal": {
+                "scenario_id": "scen_normal",
+                "title": "Normal Market Convergence",
+                "description": "Multipli OSM and all external oracle feeds agree in tight consensus (~$4,320/oz). Standard 80% LTV maintained.",
+                "scenario_type": "NORMAL",
+                "asset": "Tokenized Gold (XAU/USD)",
+                "base_price": 4320.0,
+            },
+            "scen_flash_crash": {
+                "scenario_id": "scen_flash_crash",
+                "title": "Multipli OSM Divergence / Market Drop (Hero Demo)",
+                "description": "External spot market falls to ~$4,050 while Multipli OSM remains delayed at $4,380. AEGIS detects divergence and restricts LTV.",
+                "scenario_type": "FLASH_CRASH",
+                "asset": "Tokenized Gold (XAU/USD)",
+                "base_price": 4320.0,
+            },
+            "scen_outlier": {
+                "scenario_id": "scen_outlier",
+                "title": "Single Oracle Outlier Rejection",
+                "description": "A single oracle feed reports an anomalous $9,000 quote. Agreement clustering isolates the outlier and preserves consensus.",
+                "scenario_type": "OUTLIER",
+                "asset": "Tokenized Gold (XAU/USD)",
+                "base_price": 4050.0,
+            },
+            "scen_disagreement": {
+                "scenario_id": "scen_disagreement",
+                "title": "Multi-Oracle Disagreement (Bimodal Split)",
+                "description": "External oracles split into two contradictory clusters ($4,050 vs $4,450). No consensus exists; emergency circuit breaker engages.",
+                "scenario_type": "DISAGREEMENT",
+                "asset": "Tokenized Gold (XAU/USD)",
+                "base_price": 4050.0,
+            },
+            "scen_outage": {
+                "scenario_id": "scen_outage",
+                "title": "Source Outage & Staleness Resilience",
+                "description": "Two oracle feeds fail/stale out. The system gracefully continues on remaining active quorum (SOURCE_DEGRADED).",
+                "scenario_type": "OUTAGE",
+                "asset": "Tokenized Gold (XAU/USD)",
+                "base_price": 4050.0,
+            },
+        }
 
-        # Initialize to default scenario
-        self.reset(scenario_id="scen_normal", ltv=0.80)
+        self.reset("scen_normal", ltv=0.80)
 
     def reset(self, scenario_id: Optional[str] = None, ltv: Optional[float] = None, seed: int = 42):
-        """Reset the simulation clock to T0."""
-        if scenario_id:
+        if scenario_id and scenario_id in self.fixtures:
             self.scenario_id = scenario_id
-        if ltv is not None:
-            self.ltv = ltv
-        else:
-            fix = self.fixtures.get(self.scenario_id, {})
-            self.ltv = fix.get("ltv_default", 0.80)
+        elif scenario_id:
+            # Fallback mapping for old IDs
+            if "flash" in scenario_id or "spike" in scenario_id:
+                self.scenario_id = "scen_flash_crash"
+            elif "poison" in scenario_id:
+                self.scenario_id = "scen_outlier"
+            elif "dislocation" in scenario_id:
+                self.scenario_id = "scen_disagreement"
+            elif "outage" in scenario_id or "failure" in scenario_id:
+                self.scenario_id = "scen_outage"
+            else:
+                self.scenario_id = "scen_normal"
 
+        self.ltv = ltv if ltv is not None else 0.80
         self.seed = seed
         self.sim_time_seconds = 0.0
         self.is_running = False
@@ -121,7 +110,31 @@ class SimulationEngine:
         self.is_finalized = False
         self.last_wall_time = None
         self.collateral_amount = 10.0
-        self.debt_amount = 700.0
+        self.debt_amount = 28000.0
+
+    def start(self):
+        self.is_running = True
+        self.is_paused = False
+        self.last_wall_time = time.monotonic()
+
+    def pause(self):
+        self.is_running = False
+        self.is_paused = True
+        self.last_wall_time = None
+
+    def step(self, delta_seconds: float = 600.0):
+        self.sim_time_seconds = min(float(self.window_duration_seconds), self.sim_time_seconds + delta_seconds)
+        if self.sim_time_seconds >= self.window_duration_seconds:
+            self.is_finalized = True
+            self.is_running = False
+
+    def finalize(self):
+        self.sim_time_seconds = float(self.window_duration_seconds)
+        self.is_finalized = True
+        self.is_running = False
+
+    def set_speed(self, speed_multiplier: float):
+        self.speed_multiplier = max(1.0, float(speed_multiplier))
 
     def update_position(
         self,
@@ -129,7 +142,6 @@ class SimulationEngine:
         debt_amount: Optional[float] = None,
         set_max_borrow: bool = False,
     ):
-        """Update downstream RWAUSD collateralized position."""
         if collateral_amount is not None:
             self.collateral_amount = max(0.0, float(collateral_amount))
 
@@ -139,37 +151,7 @@ class SimulationEngine:
         elif debt_amount is not None:
             self.debt_amount = max(0.0, float(debt_amount))
 
-    def start(self):
-        """Start or resume continuous simulation."""
-        self.is_running = True
-        self.is_paused = False
-        self.last_wall_time = time.monotonic()
-
-    def pause(self):
-        """Pause continuous simulation."""
-        self.is_running = False
-        self.is_paused = True
-        self.last_wall_time = None
-
-    def step(self, delta_seconds: float = 900.0):
-        """Advance simulation clock by delta_seconds (e.g. +15m demo step)."""
-        self.sim_time_seconds = min(float(self.window_duration_seconds), self.sim_time_seconds + delta_seconds)
-        if self.sim_time_seconds >= self.window_duration_seconds:
-            self.is_finalized = True
-            self.is_running = False
-
-    def finalize(self):
-        """Immediately finalize verification window at 3600s."""
-        self.sim_time_seconds = float(self.window_duration_seconds)
-        self.is_finalized = True
-        self.is_running = False
-
-    def set_speed(self, speed_multiplier: float):
-        """Set simulation speed (e.g. 30x, 60x, 120x)."""
-        self.speed_multiplier = max(1.0, float(speed_multiplier))
-
     def _tick_clock(self):
-        """Advance clock based on elapsed real wall time."""
         if not self.is_running or self.is_paused or self.is_finalized:
             return
 
@@ -184,310 +166,143 @@ class SimulationEngine:
                 self.is_running = False
         self.last_wall_time = now
 
-    def _get_fixture(self) -> dict:
-        fixture = self.fixtures.get(self.scenario_id)
-        if not fixture:
-            fixture = {
-                "scenario_id": self.scenario_id,
-                "scenario_type": "NORMAL",
-                "title": "Simulated RWA Asset Verification",
-                "description": "Standard 1-hour verification window test scenario.",
-                "asset": "RWA_USD_01 (Tokenized Asset)",
-                "p_osm_initial": 100.00,
-                "expected_market": 100.05,
-                "anchor_price": 100.00,
-                "is_rwa": True,
-                "ltv_default": 0.80,
-            }
-        return fixture
+    def _generate_oracle_feeds(self, t_sec: float, scen_type: str) -> Tuple[List[OracleObservationData], OracleObservationData, OracleObservationData]:
+        now_ts = 1774000000 + int(t_sec)
+        progress = min(1.0, t_sec / self.window_duration_seconds)
 
-    def _generate_market_price(self, t_sec: float, fixture: dict) -> float:
-        """
-        Deterministic, continuous market price generation with short-term autocorrelation
-        and scenario-specific realistic temporal trajectories.
-        """
-        rng = np.random.RandomState(self.seed + int(t_sec // 10))
-        scen_type = fixture.get("scenario_type", "NORMAL")
-        base = fixture.get("p_osm_initial", 100.0)
-        target = fixture.get("expected_market", 100.0)
-
-        # Micro-fluctuation component (autocorrelated sinusoidal + small noise)
-        micro_noise = 0.04 * math.sin(t_sec / 90.0) + 0.02 * math.cos(t_sec / 35.0) + rng.normal(0, 0.015)
+        # Baseline noise generator
+        rnd = random.Random(self.seed + int(t_sec // 10))
 
         if scen_type == "NORMAL":
-            # Stable market fluctuating gently around target
-            return round(target + micro_noise, 4)
+            # Feeds fluctuate tightly around $4,320
+            spot = 4320.0 + 1.2 * math.sin(t_sec / 300.0)
+            p_cl = spot + rnd.uniform(-0.4, 0.4)
+            p_pyth = spot + rnd.uniform(-0.3, 0.3)
+            p_chron = spot + rnd.uniform(-0.5, 0.5)
+            p_rs = spot + rnd.uniform(-0.4, 0.4)
+            p_supra = spot + rnd.uniform(-0.3, 0.3)
+            p_api3 = spot + rnd.uniform(-0.4, 0.4)
+            p_osm = 4320.0
+            p_mkt = spot + rnd.uniform(-0.2, 0.2)
 
-        elif scen_type in ("FLASH_CRASH", "FLASH_SPIKE"):
-            if scen_type == "FLASH_CRASH":
-                # Drops smoothly from 100.00 to 93.50 starting at minute 8 (480s) to minute 30 (1800s)
-                if t_sec <= 480:
-                    prog = 0.0
-                elif t_sec >= 1800:
-                    prog = 1.0
-                else:
-                    # Smooth sigmoidal transition
-                    x = (t_sec - 480) / (1800 - 480)
-                    prog = 3 * (x ** 2) - 2 * (x ** 3)
-                p = base - prog * (base - target)
-                return round(p + micro_noise, 4)
-            else:
-                # Flash spike: spike at minute 10, then returns
-                if 500 <= t_sec <= 900:
-                    spike_prog = math.sin((t_sec - 500) / 400 * math.pi)
-                    p = base + spike_prog * (target - base)
-                else:
-                    p = base
-                return round(p + micro_noise, 4)
+            feeds = [
+                OracleObservationData("chainlink_main", "Chainlink", round(p_cl, 2), now_ts - 4, 4, "ACTIVE", None, False, True),
+                OracleObservationData("pyth_gold", "Pyth", round(p_pyth, 2), now_ts - 2, 2, "ACTIVE", 0.15, True, True),
+                OracleObservationData("chronicle_gold", "Chronicle", round(p_chron, 2), now_ts - 9, 9, "ACTIVE", None, False, True),
+                OracleObservationData("redstone_xau", "RedStone", round(p_rs, 2), now_ts - 6, 6, "ACTIVE", None, False, True),
+                OracleObservationData("supra_xau", "Supra", round(p_supra, 2), now_ts - 5, 5, "ACTIVE", None, False, True),
+                OracleObservationData("api3_xau", "API3", round(p_api3, 2), now_ts - 8, 8, "ACTIVE", None, False, True),
+            ]
+            osm = OracleObservationData("multipli_osm", "Multipli", round(p_osm, 2), now_ts - int(t_sec), int(t_sec), "ACTIVE", None, False, True)
+            mkt = OracleObservationData("market_terminal", "Market Reference", round(p_mkt, 2), now_ts, 0, "ACTIVE", None, False, True)
 
-        elif scen_type == "POISONED_VALIDATOR":
-            # True market remains perfectly stable at 100.00
-            return round(target + micro_noise, 4)
+        elif scen_type == "FLASH_CRASH":
+            # Market drops from 4320 down to 4050; Multipli stays delayed @ 4380
+            spot = 4320.0 - (270.0 * progress) + rnd.uniform(-0.5, 0.5)
+            p_osm = 4380.0  # Stale delayed OSM value
 
-        elif scen_type == "MARKET_DISLOCATION":
-            # Market gradually diverges off-chain from 100 down to 70 over 60 minutes
-            prog = min(1.0, t_sec / 3600.0)
-            p = base - prog * (base - target)
-            return round(p + micro_noise, 4)
+            p_cl = spot + rnd.uniform(-0.4, 0.4)
+            p_pyth = spot + rnd.uniform(-0.3, 0.3)
+            p_chron = spot + rnd.uniform(-0.5, 0.5)
+            p_rs = spot + rnd.uniform(-0.4, 0.4)
+            p_supra = spot + rnd.uniform(-0.3, 0.3)
+            p_api3 = spot + rnd.uniform(-0.4, 0.4)
+            p_mkt = spot + rnd.uniform(-0.2, 0.2)
 
-        elif scen_type == "OSM_FAILURE":
-            # True market stays healthy at target
-            return round(target + micro_noise, 4)
+            feeds = [
+                OracleObservationData("chainlink_main", "Chainlink", round(p_cl, 2), now_ts - 4, 4, "ACTIVE", None, False, True),
+                OracleObservationData("pyth_gold", "Pyth", round(p_pyth, 2), now_ts - 2, 2, "ACTIVE", 0.12, True, True),
+                OracleObservationData("chronicle_gold", "Chronicle", round(p_chron, 2), now_ts - 9, 9, "ACTIVE", None, False, True),
+                OracleObservationData("redstone_xau", "RedStone", round(p_rs, 2), now_ts - 6, 6, "ACTIVE", None, False, True),
+                OracleObservationData("supra_xau", "Supra", round(p_supra, 2), now_ts - 5, 5, "ACTIVE", None, False, True),
+                OracleObservationData("api3_xau", "API3", round(p_api3, 2), now_ts - 8, 8, "ACTIVE", None, False, True),
+            ]
+            osm = OracleObservationData("multipli_osm", "Multipli", round(p_osm, 2), now_ts - int(t_sec), int(t_sec), "DELAYED", None, False, True)
+            mkt = OracleObservationData("market_terminal", "Market Reference", round(p_mkt, 2), now_ts, 0, "ACTIVE", None, False, True)
 
-        elif scen_type == "SLOW_DRIFT":
-            # Steady slight upward drift
-            prog = min(1.0, t_sec / 3600.0)
-            p = base + prog * (target - base)
-            return round(p + micro_noise, 4)
+        elif scen_type == "OUTLIER":
+            # 5 feeds agree @ 4050; RedStone reports 9000
+            spot = 4050.0 + rnd.uniform(-0.5, 0.5)
+            feeds = [
+                OracleObservationData("chainlink_main", "Chainlink", round(spot + 0.2, 2), now_ts - 4, 4, "ACTIVE", None, False, True),
+                OracleObservationData("pyth_gold", "Pyth", round(spot + 0.1, 2), now_ts - 2, 2, "ACTIVE", 0.10, True, True),
+                OracleObservationData("chronicle_gold", "Chronicle", round(spot - 0.2, 2), now_ts - 9, 9, "ACTIVE", None, False, True),
+                OracleObservationData("redstone_xau", "RedStone", 9000.0, now_ts - 6, 6, "ACTIVE", None, False, True),  # Outlier
+                OracleObservationData("supra_xau", "Supra", round(spot + 0.3, 2), now_ts - 5, 5, "ACTIVE", None, False, True),
+                OracleObservationData("api3_xau", "API3", round(spot - 0.1, 2), now_ts - 8, 8, "ACTIVE", None, False, True),
+            ]
+            osm = OracleObservationData("multipli_osm", "Multipli", 4050.0, now_ts - 100, 100, "ACTIVE", None, False, True)
+            mkt = OracleObservationData("market_terminal", "Market Reference", round(spot, 2), now_ts, 0, "ACTIVE", None, False, True)
 
-        elif scen_type == "RWA_DEPEG":
-            # Secondary market depegs gradually
-            prog = min(1.0, t_sec / 2400.0)
-            p = base - prog * (base - target)
-            return round(p + micro_noise, 4)
+        elif scen_type == "DISAGREEMENT":
+            # Group A @ 4050; Group B @ 4450; Multipli @ 4300
+            feeds = [
+                OracleObservationData("chainlink_main", "Chainlink", 4050.2, now_ts - 4, 4, "ACTIVE", None, False, True),
+                OracleObservationData("pyth_gold", "Pyth", 4051.0, now_ts - 2, 2, "ACTIVE", 0.20, True, True),
+                OracleObservationData("chronicle_gold", "Chronicle", 4049.8, now_ts - 9, 9, "ACTIVE", None, False, True),
+                OracleObservationData("redstone_xau", "RedStone", 4452.1, now_ts - 6, 6, "ACTIVE", None, False, True),
+                OracleObservationData("supra_xau", "Supra", 4450.7, now_ts - 5, 5, "ACTIVE", None, False, True),
+                OracleObservationData("api3_xau", "API3", 4451.4, now_ts - 8, 8, "ACTIVE", None, False, True),
+            ]
+            osm = OracleObservationData("multipli_osm", "Multipli", 4300.0, now_ts - 200, 200, "DELAYED", None, False, True)
+            mkt = OracleObservationData("market_terminal", "Market Reference", 4050.0, now_ts, 0, "ACTIVE", None, False, True)
 
-        return round(target + micro_noise, 4)
+        elif scen_type == "OUTAGE":
+            # Chronicle stale, API3 failed, others active @ 4050
+            spot = 4050.0 + rnd.uniform(-0.4, 0.4)
+            feeds = [
+                OracleObservationData("chainlink_main", "Chainlink", round(spot + 0.1, 2), now_ts - 4, 4, "ACTIVE", None, False, True),
+                OracleObservationData("pyth_gold", "Pyth", round(spot - 0.1, 2), now_ts - 2, 2, "ACTIVE", 0.15, True, True),
+                OracleObservationData("chronicle_gold", "Chronicle", 4320.0, now_ts - 7200, 7200, "STALE", None, False, False),  # Stale
+                OracleObservationData("redstone_xau", "RedStone", round(spot + 0.2, 2), now_ts - 6, 6, "ACTIVE", None, False, True),
+                OracleObservationData("supra_xau", "Supra", round(spot - 0.2, 2), now_ts - 5, 5, "ACTIVE", None, False, True),
+                OracleObservationData("api3_xau", "API3", 0.0, 0, 0, "FAILED", None, False, False),  # Failed
+            ]
+            osm = OracleObservationData("multipli_osm", "Multipli", 4050.0, now_ts - 300, 300, "ACTIVE", None, False, True)
+            mkt = OracleObservationData("market_terminal", "Market Reference", round(spot, 2), now_ts, 0, "ACTIVE", None, False, True)
 
-    def _generate_osm_price(self, t_sec: float, fixture: dict) -> float:
-        """P_OSM is queued at T0 and remains stale/delayed throughout the 1-hr window."""
-        scen_type = fixture.get("scenario_type", "NORMAL")
-        base = fixture.get("p_osm_initial", 100.0)
+        else:
+            feeds = []
+            osm = OracleObservationData("multipli_osm", "Multipli", 4320.0, now_ts, 0, "ACTIVE")
+            mkt = OracleObservationData("market_terminal", "Market Reference", 4320.0, now_ts, 0, "ACTIVE")
 
-        if scen_type == "OSM_FAILURE":
-            # Reverts or fails to 0.00 after initial staleness
-            if t_sec >= 300:
-                return 0.00
-            return base
-
-        return base
+        return feeds, osm, mkt
 
     def get_snapshot(self) -> Dict[str, Any]:
-        """
-        Compute and return the complete instantaneous authoritative state snapshot.
-        """
         self._tick_clock()
 
-        fixture = self._get_fixture()
-        scen_type = fixture.get("scenario_type", "NORMAL")
         t_sec = self.sim_time_seconds
-        start_ts = 1774000000
-        current_ts = start_ts + int(t_sec)
-        end_ts = start_ts + self.window_duration_seconds
-        is_finalized = self.is_finalized or t_sec >= self.window_duration_seconds
+        fixture = self.fixtures[self.scenario_id]
+        scen_type = fixture["scenario_type"]
 
-        # 1. Generate continuous P_OSM and live P_MARKET
-        osm_val = self._generate_osm_price(t_sec, fixture)
-        live_market_val = self._generate_market_price(t_sec, fixture)
+        # 1. Generate Oracle Observations
+        oracle_feeds, multipli_obs, market_obs = self._generate_oracle_feeds(t_sec, scen_type)
 
-        p_osm = OSMFeed(
-            value=osm_val,
-            timestamp=start_ts,
-            source="multipli_osm_baseline",
-            status=DataStatus.SIMULATED if osm_val > 0 else DataStatus.OBSERVED,
-            description="Baseline delayed OSM price feed queued at T0",
-        )
+        # 2. Consensus Agreement Clustering
+        consensus = self.consensus_engine.compute_consensus(oracle_feeds)
 
-        # 2. Simulate Active Validator Nodes with Staggered Cadences
-        active_validators_results: List[ValidatorResult] = []
-        node_status_list: List[Dict[str, Any]] = []
-        lane_latest_metrics: Dict[str, Any] = {}
-
-        for node in self.node_definitions:
-            node_id = node["node_id"]
-            lane_id = node["lane_id"]
-            methodology = node["methodology"]
-            op_id = node["operator_id"]
-            cadence = node["cadence_sec"]
-            offset = node["offset_sec"]
-
-            # Scenario outage conditions:
-            # Under VALIDATOR_OUTAGE, nodes with operator_delta and operator_epsilon are offline
-            is_offline = (scen_type == "VALIDATOR_OUTAGE" and op_id in ("operator_delta", "operator_epsilon"))
-
-            if is_offline:
-                node_status_list.append({
-                    "node_id": node_id,
-                    "lane_id": lane_id,
-                    "methodology": methodology,
-                    "operator_id": op_id,
-                    "status": "OFFLINE",
-                    "last_seen_sec": 0,
-                    "quote": None,
-                })
-                continue
-
-            # Has this node submitted at least one observation before current sim time?
-            first_submit_ts = offset
-            if t_sec < first_submit_ts:
-                node_status_list.append({
-                    "node_id": node_id,
-                    "lane_id": lane_id,
-                    "methodology": methodology,
-                    "operator_id": op_id,
-                    "status": "AWAITING_CADENCE",
-                    "last_seen_sec": 0,
-                    "quote": None,
-                })
-                continue
-
-            # Calculate last submission time
-            intervals = int((t_sec - offset) // cadence)
-            last_submit_t_sec = offset + intervals * cadence
-            last_seen_sec_ago = int(t_sec - last_submit_t_sec)
-
-            # Build reference context for strategy
-            if scen_type == "MARKET_DISLOCATION":
-                expected_hint = fixture.get("anchor_price", 100.0)
-            elif scen_type == "POISONED_VALIDATOR":
-                expected_hint = fixture.get("anchor_price", 100.0)
-            elif scen_type == "OSM_FAILURE":
-                expected_hint = fixture.get("expected_market", 100.0)
+        # Assign cluster IDs to feeds
+        for f in oracle_feeds:
+            if f.source_id in consensus.cluster_members:
+                f.cluster_id = "A"
+            elif f.status != "ACTIVE":
+                f.cluster_id = "OFFLINE"
             else:
-                expected_hint = live_market_val
+                f.cluster_id = "OUTLIER"
 
-            is_adversarial = (scen_type == "POISONED_VALIDATOR" and "val_gamma_h2" in node_id)
+        multipli_obs.cluster_id = "A" if (abs(multipli_obs.price - consensus.consensus_price) / max(0.001, consensus.consensus_price) <= 0.005) else "OUTLIER"
 
-            context = ReferenceContext(
-                asset=fixture["asset"],
-                p_osm=p_osm.value,
-                window_start_ts=start_ts,
-                current_ts=start_ts + int(last_submit_t_sec),
-                expected_market_hint=expected_hint,
-                anchor_price=fixture.get("anchor_price", p_osm.value),
-                is_rwa=fixture.get("is_rwa", True),
-                scenario_type=scen_type,
-                adversarial_node_id=node_id if is_adversarial else None,
-                seed=self.seed + lane_id * 100 + intervals,
-            )
-
-            # Invoke Canonical Strategy
-            strategy = None
-            if lane_id == 1:
-                strategy = self.kalman_strategy
-            elif lane_id == 2:
-                strategy = self.huber_strategy
-            elif lane_id == 3:
-                strategy = self.jsd_strategy
-            elif lane_id == 4:
-                strategy = self.ou_strategy
-            elif lane_id == 5:
-                strategy = self.cusum_strategy
-
-            if strategy:
-                res = strategy.generate(
-                    validator_id=node_id,
-                    context=context,
-                    operator_id=op_id,
-                )
-                res.timestamp = start_ts + int(last_submit_t_sec)
-                active_validators_results.append(res)
-                lane_latest_metrics[methodology] = {
-                    "lane_id": lane_id,
-                    "metrics": res.intermediate_metrics,
-                    "decision": res.decision,
-                    "reason_code": res.reason_code,
-                    "estimated_price": res.estimated_price,
-                    "uncertainty_lower": res.uncertainty_lower,
-                    "uncertainty_upper": res.uncertainty_upper,
-                }
-
-                node_status_list.append({
-                    "node_id": node_id,
-                    "lane_id": lane_id,
-                    "methodology": methodology,
-                    "operator_id": op_id,
-                    "status": "ACTIVE",
-                    "last_seen_sec": last_seen_sec_ago,
-                    "quote": res.estimated_price,
-                })
-
-        # 3. P_DEC Aggregation
-        p_dec = self.aggregator.aggregate(active_validators_results)
-
-        # Calculate uncertainty half-width for UI (e.g. ± $0.31)
-        prices = [v.estimated_price for v in active_validators_results if v.is_price_estimator and v.estimated_price is not None]
-        if len(prices) >= 2:
-            std_dev = float(np.std(prices))
-            uncertainty_half_width = round(max(0.05, std_dev * 1.96), 2)
-        else:
-            uncertainty_half_width = 0.25
-
-        # 4. P_MARKET Observation
-        if is_finalized:
-            p_market = MarketObservation(
-                value=live_market_val,
-                timestamp=end_ts,
-                source="attested_market_stream",
-                status=DataStatus.SIMULATED,
-                symbol=fixture["asset"],
-            )
-        else:
-            # During the window, market observation is gathering/pending final attestation
-            p_market = MarketObservation(
-                value=live_market_val,
-                timestamp=current_ts,
-                source="live_market_stream",
-                status=DataStatus.OBSERVED,
-                symbol=fixture["asset"],
-            )
-
-        # 5. Evidence Engine Evaluation
-        evidence = self.evidence_engine.evaluate(
-            p_osm=p_osm,
-            p_dec=p_dec,
-            p_market=p_market,
-            validators=active_validators_results,
+        # 3. Risk Decision Engine Evaluation
+        decision = self.decision_engine.evaluate_decision(
+            consensus=consensus,
+            multipli_obs=multipli_obs,
+            market_ref_price=market_obs.price,
         )
 
-        # 6. Decision & Collateral Consequence
-        decision, collateral = self.decision_engine.decide(
-            p_osm=p_osm,
-            p_dec=p_dec,
-            p_market=p_market,
-            evidence=evidence,
-            ltv=self.ltv,
-        )
-
-        # 6.5 Downstream Collateralized RWAUSD Position Calculation
-        if decision.final_price is not None:
-            effective_price = decision.final_price
-        elif p_dec.value is not None:
-            effective_price = p_dec.value
-        else:
-            effective_price = p_osm.value or 100.0
-
-        if decision.action == "HALT" or evidence.oracle_status == OracleStatus.HALTED_CIRCUIT_BREAKER or decision.dispute_status == "HALTED":
-            protocol_state = "HALTED"
-            effective_ltv = 0.0
-        elif decision.action == "HAIRCUT" or decision.dispute_status == "RESTRICTED" or evidence.oracle_status in (OracleStatus.EVIDENCE_OF_ABNORMAL_DEVIATION, OracleStatus.SUSPECTED_INCONSISTENCY):
-            protocol_state = "RESTRICTED"
-            effective_ltv = 0.50
-        else:
-            protocol_state = "NORMAL"
-            effective_ltv = self.ltv if self.ltv is not None else 0.80
-
+        # 4. Downstream Protocol & Collateral Calculations
+        effective_price = decision.final_price if decision.final_price > 0 else (consensus.consensus_price if consensus.consensus_price > 0 else multipli_obs.price)
         collateral_value = round(self.collateral_amount * effective_price, 2)
-        max_borrow_capacity = round(collateral_value * effective_ltv, 2)
+        max_borrow_capacity = round(collateral_value * decision.effective_ltv, 2)
         current_ltv = round(self.debt_amount / max(0.0001, collateral_value), 4) if collateral_value > 0 else 0.0
         borrowing_headroom = round(max_borrow_capacity - self.debt_amount, 2)
 
@@ -498,19 +313,16 @@ class SimulationEngine:
         else:
             health_factor = round(max_borrow_capacity / self.debt_amount, 2)
 
-        if protocol_state == "HALTED":
+        if decision.protocol_state == "HALTED":
             position_status = "HALTED"
         elif self.debt_amount > max_borrow_capacity:
-            if protocol_state == "RESTRICTED":
-                position_status = "RESTRICTED"
-            else:
-                position_status = "OVER_LIMIT"
+            position_status = "OVER_LIMIT" if decision.protocol_state == "NORMAL" else "RESTRICTED"
         elif health_factor < 1.10:
             position_status = "AT_RISK"
         else:
             position_status = "HEALTHY"
 
-        position = {
+        position_dict = {
             "user_address": self.user_address,
             "collateral_asset": self.collateral_asset,
             "collateral_amount": round(self.collateral_amount, 2),
@@ -518,75 +330,53 @@ class SimulationEngine:
             "effective_oracle_price": round(effective_price, 2),
             "debt_amount": round(self.debt_amount, 2),
             "current_ltv": current_ltv,
-            "effective_ltv": effective_ltv,
+            "effective_ltv": decision.effective_ltv,
             "max_borrow_capacity": max_borrow_capacity,
             "borrowing_headroom": borrowing_headroom,
             "health_factor": health_factor,
-            "protocol_state": protocol_state,
+            "protocol_state": decision.protocol_state,
             "position_status": position_status,
         }
 
-        # Causal Chain Telemetry
-        dev_pct = round(abs(p_osm.value - (p_market.value or p_osm.value)) / max(0.01, p_market.value or p_osm.value) * 100, 1)
-        causal_chain = {
-            "market_price": round(p_market.value, 2) if p_market.value is not None else None,
-            "osm_price": round(p_osm.value, 2) if p_osm.value is not None else None,
-            "dec_price": round(p_dec.value, 2) if p_dec.value is not None else None,
-            "deviation_detected_pct": dev_pct,
-            "anomaly_score": round(evidence.anomaly_score, 3),
-            "oracle_status": evidence.oracle_status.value,
-            "oracle_decision": decision.dispute_status,
-            "effective_ltv": effective_ltv,
+        causal_chain_dict = {
+            "multipli_price": round(multipli_obs.price, 2),
+            "consensus_price": round(consensus.consensus_price, 2),
+            "market_price": round(market_obs.price, 2),
+            "deviation_pct": decision.multipli_deviation_pct,
+            "agreement_ratio": consensus.agreement_ratio,
+            "oracle_state": decision.state,
+            "selected_price": round(decision.final_price, 2),
+            "effective_ltv": decision.effective_ltv,
             "max_borrow_capacity": max_borrow_capacity,
             "position_status": position_status,
         }
 
-        # 7. Generate Real-Time Time Series History (up to current minute)
-        time_series: List[Dict[str, Any]] = []
-        total_minutes = int(t_sec // 60)
-        # Sample points every 1 simulated minute
-        for m in range(max(0, total_minutes - 60), total_minutes + 1):
+        # 5. Time Series Trajectory
+        total_mins = int(t_sec // 60)
+        time_series = []
+        for m in range(max(0, total_mins - 60), total_mins + 1):
             t_sample = m * 60.0
-            m_market = self._generate_market_price(t_sample, fixture)
-            m_osm = self._generate_osm_price(t_sample, fixture)
-
-            # Simulated historical DEC estimation tracking market
-            if scen_type == "POISONED_VALIDATOR":
-                m_dec = round(100.00 + 0.03 * math.sin(m), 2)
-            elif scen_type == "MARKET_DISLOCATION":
-                m_dec = round(100.00 + 0.02 * math.cos(m), 2)
-            elif scen_type == "OSM_FAILURE":
-                m_dec = round(m_market, 2)
-            else:
-                m_dec = round(m_market + 0.03 * math.sin(m), 2)
-
+            s_feeds, s_osm, s_mkt = self._generate_oracle_feeds(t_sample, scen_type)
+            s_cons = self.consensus_engine.compute_consensus(s_feeds)
             time_series.append({
                 "minute": m,
                 "time_label": f"{m:02d}:00",
-                "p_osm": round(m_osm, 2) if m_osm > 0 else None,
-                "p_dec": round(m_dec, 2),
-                "p_market": round(m_market, 2),
-                "uncertainty_lower": round(m_dec - uncertainty_half_width, 2),
-                "uncertainty_upper": round(m_dec + uncertainty_half_width, 2),
+                "p_multipli": round(s_osm.price, 2) if s_osm.price > 0 else None,
+                "p_consensus": round(s_cons.consensus_price, 2) if s_cons.consensus_price > 0 else None,
+                "p_market": round(s_mkt.price, 2) if s_mkt.price > 0 else None,
+                "cluster_min": round(s_cons.cluster_min, 2) if s_cons.cluster_min > 0 else None,
+                "cluster_max": round(s_cons.cluster_max, 2) if s_cons.cluster_max > 0 else None,
             })
 
-        # 8. Deterministic Live Event Feed Stream
-        events: List[Dict[str, Any]] = self._generate_events(t_sec, fixture, active_validators_results, evidence, decision)
+        # 6. Live Events Feed
+        events = self._generate_events(t_sec, scen_type, consensus, decision)
 
-        # 9. Dynamic System Interpretation ("What Just Happened?")
-        interpretation = self._generate_interpretation(scen_type, p_osm, p_dec, p_market, evidence, decision, collateral, is_finalized)
-
-        # Observation count metric
-        total_observations = int((t_sec / 15.0) + len(active_validators_results) * (total_minutes + 1)) + 1
-        current_block = f"SIM-{18400 + int(t_sec // 12)}"
+        # 7. System Interpretation
+        interpretation = self._generate_interpretation(scen_type, consensus, decision, multipli_obs)
 
         elapsed_mins = int(t_sec // 60)
         elapsed_secs_remainder = int(t_sec % 60)
         sim_time_formatted = f"{elapsed_mins:02d}:{elapsed_secs_remainder:02d}"
-
-        active_count = len([n for n in node_status_list if n["status"] == "ACTIVE"])
-        total_nodes = len(self.node_definitions)
-        active_lanes = len(set(v.lane_id for v in active_validators_results))
 
         return {
             "scenario_id": fixture["scenario_id"],
@@ -600,26 +390,71 @@ class SimulationEngine:
             "speed_multiplier": self.speed_multiplier,
             "is_running": self.is_running,
             "is_paused": self.is_paused,
-            "is_finalized": is_finalized,
-            "total_observations": total_observations,
-            "active_validators_count": active_count,
-            "total_validators_count": total_nodes,
-            "active_lanes_count": active_lanes,
-            "total_lanes_count": 5,
-            "current_block": current_block,
-            "ltv": self.ltv,
-            "p_osm": p_osm.model_dump(),
-            "p_dec": p_dec.model_dump(),
-            "p_dec_uncertainty_half_width": uncertainty_half_width,
-            "p_market": p_market.model_dump(),
-            "evidence": evidence.model_dump(),
-            "decision": decision.model_dump(),
-            "collateral": collateral.model_dump(),
-            "position": position,
-            "causal_chain": causal_chain,
-            "validators": [v.model_dump() for v in active_validators_results],
-            "validator_nodes": node_status_list,
-            "lane_telemetry": lane_latest_metrics,
+            "is_finalized": self.is_finalized,
+            "current_block": f"SIM-{18400 + int(t_sec // 12)}",
+            "oracle_sources": [
+                {
+                    "source_id": f.source_id,
+                    "name": f.name,
+                    "price": f.price,
+                    "updated_at": f.updated_at,
+                    "age_seconds": f.age_seconds,
+                    "status": f.status,
+                    "confidence": f.confidence,
+                    "has_confidence": f.has_confidence,
+                    "valid": f.valid,
+                    "cluster_id": f.cluster_id,
+                }
+                for f in oracle_feeds
+            ],
+            "multipli_observation": {
+                "source_id": multipli_obs.source_id,
+                "name": multipli_obs.name,
+                "price": multipli_obs.price,
+                "updated_at": multipli_obs.updated_at,
+                "age_seconds": multipli_obs.age_seconds,
+                "status": multipli_obs.status,
+                "confidence": multipli_obs.confidence,
+                "has_confidence": multipli_obs.has_confidence,
+                "valid": multipli_obs.valid,
+                "cluster_id": multipli_obs.cluster_id,
+            },
+            "market_observation": {
+                "source_id": market_obs.source_id,
+                "name": market_obs.name,
+                "price": market_obs.price,
+                "updated_at": market_obs.updated_at,
+                "age_seconds": market_obs.age_seconds,
+                "status": market_obs.status,
+                "confidence": market_obs.confidence,
+                "has_confidence": market_obs.has_confidence,
+                "valid": market_obs.valid,
+                "cluster_id": "MKT",
+            },
+            "consensus": {
+                "consensus_price": consensus.consensus_price,
+                "cluster_size": consensus.cluster_size,
+                "total_eligible": consensus.total_eligible,
+                "agreement_ratio": consensus.agreement_ratio,
+                "cluster_min": consensus.cluster_min,
+                "cluster_max": consensus.cluster_max,
+                "cluster_spread_pct": consensus.cluster_spread_pct,
+                "has_strong_consensus": consensus.has_strong_consensus,
+                "cluster_members": consensus.cluster_members,
+                "outlier_members": consensus.outlier_members,
+            },
+            "decision": {
+                "state": decision.state,
+                "oracle_status": decision.oracle_status,
+                "final_price": decision.final_price,
+                "multipli_deviation_pct": decision.multipli_deviation_pct,
+                "is_conservative_applied": decision.is_conservative_applied,
+                "policy_rationale": decision.policy_rationale,
+                "effective_ltv": decision.effective_ltv,
+                "protocol_state": decision.protocol_state,
+            },
+            "position": position_dict,
+            "causal_chain": causal_chain_dict,
             "time_series": time_series,
             "events": events,
             "interpretation": interpretation,
@@ -628,233 +463,121 @@ class SimulationEngine:
     def _generate_events(
         self,
         t_sec: float,
-        fixture: dict,
-        validators: List[ValidatorResult],
-        evidence: EvidenceRecord,
-        decision: DecisionResult,
+        scen_type: str,
+        consensus: ConsensusMetrics,
+        decision: RiskDecisionOutput,
     ) -> List[Dict[str, Any]]:
-        """Produce dynamic chronological event stream up to current simulation time."""
-        events: List[Dict[str, Any]] = []
-        start_ts = 1774000000
-        scen_type = fixture.get("scenario_type", "NORMAL")
-
-        # Initial T0 event
+        events = []
         events.append({
             "timestamp": "00:00",
-            "category": "OSM",
-            "message": f"Queued P_OSM baseline valuation @ ${fixture.get('p_osm_initial', 100.0):.2f}",
+            "category": "INITIALIZATION",
+            "message": "AEGIS Cross-Oracle Risk Layer connected to Multipli OSM and 6 external oracle adapters",
             "severity": "INFO",
         })
 
-        if t_sec >= 10:
-            events.append({
-                "timestamp": "00:10",
-                "category": "VALIDATOR",
-                "message": "Validator operators registered across 5 methodology lanes",
-                "severity": "INFO",
-            })
+        if t_sec >= 15:
             events.append({
                 "timestamp": "00:15",
-                "category": "POSITION",
-                "message": "User position active: Deposited 10.00 oz Gold Collateral ($1,000.00 initial value)",
-                "severity": "INFO",
-            })
-            events.append({
-                "timestamp": "00:20",
-                "category": "PROTOCOL",
-                "message": "RWAUSD debt facility opened: Borrowed $700.00 (70.0% LTV, HEALTHY)",
+                "category": "CONSENSUS",
+                "message": f"Initial agreement cluster formed across {consensus.cluster_size}/{consensus.total_eligible} feeds (Spread: {consensus.cluster_spread_pct:.2f}%)",
                 "severity": "SUCCESS",
-            })
-
-        if t_sec >= 120:
-            events.append({
-                "timestamp": "02:00",
-                "category": "KALMAN",
-                "message": f"Lane 1 Kalman innovation update: D² = 1.42 (Within chi² gate)",
-                "severity": "SUCCESS",
-            })
-
-        if t_sec >= 180:
-            events.append({
-                "timestamp": "03:00",
-                "category": "HUBER",
-                "message": f"Lane 2 Huber IRLS robust M-estimator converged (MAD 0.18)",
-                "severity": "SUCCESS",
-            })
-
-        if t_sec >= 300:
-            events.append({
-                "timestamp": "05:00",
-                "category": "CUSUM",
-                "message": "Lane 5 Page CUSUM sequential accumulation: S+ = 0.42 (Threshold 4.0)",
-                "severity": "INFO",
             })
 
         if scen_type == "FLASH_CRASH" and t_sec >= 600:
             events.append({
                 "timestamp": "10:00",
                 "category": "MARKET",
-                "message": "Macro liquidity shock detected: Market spot price accelerating downward",
+                "message": "Macro spot price dropping across Chainlink, Pyth, Chronicle, RedStone, Supra, API3",
                 "severity": "WARNING",
             })
-            if t_sec >= 900:
-                events.append({
-                    "timestamp": "15:00",
-                    "category": "KALMAN",
-                    "message": "Lane 1 Innovation Gate tripped on stale OSM reference (D² > 6.635)",
-                    "severity": "WARNING",
-                })
             if t_sec >= 1200:
                 events.append({
                     "timestamp": "20:00",
-                    "category": "CUSUM",
-                    "message": "Lane 5 Sequential Drift Alert: S_plus accumulated past decision threshold",
-                    "severity": "WARNING",
-                })
-            if t_sec >= 1500:
-                events.append({
-                    "timestamp": "25:00",
-                    "category": "EVIDENCE",
-                    "message": "Evidence Engine flags ABNORMAL_DEVIATION: P_OSM ($100) vs Market ($93.50)",
+                    "category": "ORACLE_DEVIATION",
+                    "message": "Multipli OSM delayed at $4,380.00 while external oracle consensus falls to ~$4,160.00",
                     "severity": "ALERT",
                 })
             if t_sec >= 1800:
                 events.append({
                     "timestamp": "30:00",
-                    "category": "PROTOCOL",
-                    "message": "Protocol risk state shifted to RESTRICTED (LTV capped at 50%)",
+                    "category": "RISK_DECISION",
+                    "message": "MULTIPLI_DEVIATION detected (>3.0% divergence). Conservative valuation enforced = min(P_OSM, P_CONSENSUS)",
                     "severity": "ALERT",
                 })
                 events.append({
                     "timestamp": "30:05",
-                    "category": "POSITION",
-                    "message": "Downstream position restricted: Max borrowing power reduced from $800.00 to $467.50",
+                    "category": "PROTOCOL",
+                    "message": "Downstream RWAUSD Protocol risk state restricted: Max LTV capped from 80% to 50%",
                     "severity": "WARNING",
                 })
                 events.append({
                     "timestamp": "30:10",
                     "category": "AUDIT",
-                    "message": "AEGIS saved $332.50 in under-collateralized borrowing risk over stale P_OSM",
+                    "message": "Collateral overstatement prevented: Successfully protected vault from bad debt accumulation",
                     "severity": "SUCCESS",
                 })
 
-        elif scen_type == "POISONED_VALIDATOR" and t_sec >= 600:
-            events.append({
-                "timestamp": "10:00",
-                "category": "VALIDATOR",
-                "message": "Sybil Node val_gamma_h2 injecting anomalous outlier price quotes ($500.00)",
-                "severity": "WARNING",
-            })
-            if t_sec >= 900:
-                events.append({
-                    "timestamp": "15:00",
-                    "category": "HUBER",
-                    "message": "Lane 2 Huber IRLS dynamically downweighted malicious outlier quote (weight -> 0.0)",
-                    "severity": "SUCCESS",
-                })
-            if t_sec >= 1200:
-                events.append({
-                    "timestamp": "20:00",
-                    "category": "JSD",
-                    "message": "Lane 3 Pairwise JSD isolated Sybil dispersion matrix without consensus contamination",
-                    "severity": "SUCCESS",
-                })
-            if t_sec >= 1500:
-                events.append({
-                    "timestamp": "25:00",
-                    "category": "AGGREGATOR",
-                    "message": "P_DEC cross-lane robust median preserves healthy $100.00 consensus",
-                    "severity": "SUCCESS",
-                })
-
-        elif scen_type == "MARKET_DISLOCATION" and t_sec >= 600:
-            events.append({
-                "timestamp": "10:00",
-                "category": "MARKET",
-                "message": "External market attestor diverging from internal validator feeds",
-                "severity": "WARNING",
-            })
-            if t_sec >= 1500:
-                events.append({
-                    "timestamp": "25:00",
-                    "category": "EVIDENCE",
-                    "message": "Triangular deviation d(DEC, MKT) exceeded 15.0% tolerance limit",
-                    "severity": "ALERT",
-                })
-            if t_sec >= 2400:
-                events.append({
-                    "timestamp": "40:00",
-                    "category": "PROTOCOL",
-                    "message": "EMERGENCY CIRCUIT BREAKER TRIGGERED: Protocol valuations HALTED",
-                    "severity": "CRITICAL",
-                })
-
-        elif scen_type == "OSM_FAILURE" and t_sec >= 300:
+        elif scen_type == "OUTLIER" and t_sec >= 300:
             events.append({
                 "timestamp": "05:00",
-                "category": "OSM",
-                "message": "Upstream OSM read failed / returned revert code ($0.00)",
-                "severity": "ALERT",
+                "category": "OUTLIER",
+                "message": "RedStone feed anomaly detected ($9,000.00). Price-band clustering isolated outlier without consensus corruption",
+                "severity": "SUCCESS",
             })
-            if t_sec >= 600:
-                events.append({
-                    "timestamp": "10:00",
-                    "category": "PROTOCOL",
-                    "message": "Autonomous Failsafe engaged: Routing to P_DEC decentralized fallback under RESTRICTED",
-                    "severity": "WARNING",
-                })
 
-        # Return latest 25 events reversed (newest first)
+        elif scen_type == "DISAGREEMENT" and t_sec >= 300:
+            events.append({
+                "timestamp": "05:00",
+                "category": "CIRCUIT_BREAKER",
+                "message": "Bimodal disagreement detected across oracle networks ($4,050 vs $4,450). Emergency halt engaged",
+                "severity": "CRITICAL",
+            })
+
+        elif scen_type == "OUTAGE" and t_sec >= 300:
+            events.append({
+                "timestamp": "05:00",
+                "category": "FAULT_TOLERANCE",
+                "message": "Chronicle feed stale and API3 failed. Quorum preserved across 4 active independent feeds",
+                "severity": "WARNING",
+            })
+
         return events[-25:][::-1]
 
     def _generate_interpretation(
         self,
         scen_type: str,
-        p_osm: OSMFeed,
-        p_dec: DECAggregate,
-        p_market: MarketObservation,
-        evidence: EvidenceRecord,
-        decision: DecisionResult,
-        collateral: CollateralImpact,
-        is_finalized: bool,
+        consensus: ConsensusMetrics,
+        decision: RiskDecisionOutput,
+        multipli_obs: OracleObservationData,
     ) -> str:
-        """Construct dynamic natural-language interpretation based on live state."""
-        dec_val_str = f"${p_dec.value:.2f}" if p_dec.value is not None else "gathering..."
-        osm_val_str = f"${p_osm.value:.2f}" if p_osm.value is not None else "$0.00"
-        mkt_val_str = f"${p_market.value:.2f}" if p_market.value is not None else "pending..."
-
         if scen_type == "NORMAL":
             return (
-                "Market conditions remain stationary. All five independent methodology lanes agree within narrow "
-                "dispersion (median $100.05). Evidence Engine confirms healthy consistency with zero anomalous deviations. "
-                "Protocol maintains standard 80% LTV."
+                f"Multipli OSM (${multipli_obs.price:.2f}) and all {consensus.cluster_size} external oracle feeds "
+                f"agree in tight consensus around ${consensus.consensus_price:.2f} (cluster spread: {consensus.cluster_spread_pct:.2f}%). "
+                f"Protocol maintains standard 80% LTV under HEALTHY_CONSENSUS."
             )
         elif scen_type == "FLASH_CRASH":
-            diff_str = f"${collateral.difference:.2f}/unit" if collateral.difference else "protective haircuts"
             return (
-                f"P_OSM remains delayed/stale at {osm_val_str} while continuous validator evidence detects an "
-                f"intraday market crash to {mkt_val_str}. AEGIS has dynamically engaged RESTRICTED 50% LTV "
-                f"and substituted P_DEC ({dec_val_str}), successfully preventing {diff_str} in simulated collateral overstatement."
+                f"Multipli OSM remains delayed at ${multipli_obs.price:.2f} while {consensus.cluster_size} external oracle feeds "
+                f"corroborate an intraday market drop to ${consensus.consensus_price:.2f} (deviation: {decision.multipli_deviation_pct:.2f}%). "
+                f"AEGIS has engaged MULTIPLI_DEVIATION, applied conservative valuation min(P_OSM, P_CONSENSUS) = ${decision.final_price:.2f}, "
+                f"and restricted downstream LTV to 50%, preventing unbacked collateral overstatement."
             )
-        elif scen_type == "POISONED_VALIDATOR":
+        elif scen_type == "OUTLIER":
             return (
-                "An adversarial Sybil node submitted an extreme $500.00 quote to manipulate the oracle. "
-                "Lane 2 Huber M-estimation and robust median aggregation suppressed the malicious outlier towards zero weight, "
-                "preserving authentic P_DEC consensus ($100.00) without contaminating protocol solvency."
+                f"One oracle feed submitted an anomalous outlier quote ($9,000.00). Deterministic price-band clustering "
+                f"isolated the outlier to cluster 'OUTLIER', preserving consensus across {consensus.cluster_size} honest feeds "
+                f"at ${consensus.consensus_price:.2f} without disrupting protocol operations."
             )
-        elif scen_type == "MARKET_DISLOCATION":
+        elif scen_type == "DISAGREEMENT":
             return (
-                "Severe triangular dislocation detected: External market observation ($70.00) diverged by >20% from both "
-                "P_OSM and P_DEC ($100.00). Evidence Engine detected triangular failure and triggered Emergency Circuit Breaker (HALTED), "
-                "freezing protocol borrowing to protect system solvency."
+                "External oracle networks split into contradictory bimodal groups ($4,050 vs $4,450). No dominant agreement "
+                "cluster exists (>60%). AEGIS triggered ORACLE_INSTABILITY, halting new borrowing to protect system solvency."
             )
-        elif scen_type == "OSM_FAILURE":
+        elif scen_type == "OUTAGE":
             return (
-                "Upstream OSM feed failed or reverted (P_OSM = $0.00). AEGIS automatically activated decentralized failsafe fallback, "
-                f"routing authoritative valuation to robust P_DEC ({dec_val_str}) under RESTRICTED risk parameters."
+                f"Two oracle feeds are unavailable (Chronicle stale, API3 failed). AEGIS successfully maintained quorum "
+                f"across {consensus.cluster_size} active feeds at ${consensus.consensus_price:.2f} under SOURCE_DEGRADED."
             )
         else:
-            return (
-                f"AEGIS is continuously verifying multi-lane consensus across 5 methodology lanes. "
-                f"Current status: {evidence.oracle_status.value}."
-            )
+            return f"AEGIS Cross-Oracle Risk Layer is actively monitoring multi-oracle consensus. Status: {decision.state}."

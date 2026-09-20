@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { ScenarioRecord, TimeSeriesPoint } from '@/lib/types';
-import { LineChart as LineChartIcon, BarChart3, TrendingUp, Layers } from 'lucide-react';
+import { TimeSeriesPoint, SimulationSnapshot, OracleObservation } from '@/lib/types';
+import { TrendingUp, BarChart3, Layers, GitMerge } from 'lucide-react';
 import {
   ResponsiveContainer,
   ComposedChart,
-  LineChart,
   Line,
   Area,
   Bar,
@@ -17,53 +16,57 @@ import {
 } from 'recharts';
 
 interface ComparisonChartProps {
-  scenario: ScenarioRecord;
+  snapshot: SimulationSnapshot;
   timeSeries?: TimeSeriesPoint[];
-  uncertaintyHalfWidth?: number;
 }
 
 export const ComparisonChart: React.FC<ComparisonChartProps> = ({
-  scenario,
+  snapshot,
   timeSeries = [],
-  uncertaintyHalfWidth = 0.25,
 }) => {
-  const { p_osm, p_dec, p_market, validators } = scenario;
   const [viewMode, setViewMode] = useState<'STREAM' | 'DISPERSION'>('STREAM');
+
+  const sources = snapshot.oracle_sources || [];
+  const multipli = snapshot.multipli_observation;
+  const consensus = snapshot.consensus;
+  const market = snapshot.market_observation;
 
   // Dispersion bar data
   const dispersionData = [
-    {
-      name: 'P_OSM',
-      price: p_osm.value,
-      type: 'OSM Baseline',
-      color: '#475569',
-    },
-    ...validators.map((v) => ({
-      name: v.lane_id != null
-        ? `LANE ${v.lane_id}`
-        : String(v.validator_id || 'VALIDATOR'),
-      price: v.estimated_price,
-      lower: v.uncertainty_lower,
-      upper: v.uncertainty_upper,
-      type: 'Validator Lane',
-      color: '#3B82F6',
-    })),
-    ...(p_dec.value !== null
+    ...(multipli && multipli.price !== null && multipli.price > 0
       ? [
           {
-            name: 'P_DEC',
-            price: p_dec.value,
-            type: 'Robust Median',
+            name: 'Multipli OSM',
+            price: multipli.price,
+            type: 'Target OSM (Delayed)',
+            color: '#7C3AED',
+          },
+        ]
+      : []),
+    ...sources.map((s) => ({
+      name: s.name,
+      price: s.price,
+      lower: s.price && s.confidence ? s.price - s.confidence : null,
+      upper: s.price && s.confidence ? s.price + s.confidence : null,
+      type: s.cluster_id === 'OUTLIER' ? 'Excluded Outlier' : 'Consensus Feed',
+      color: s.cluster_id === 'OUTLIER' ? '#EF4444' : '#3B82F6',
+    })),
+    ...(consensus.consensus_price !== null && consensus.consensus_price > 0
+      ? [
+          {
+            name: 'Consensus Median',
+            price: consensus.consensus_price,
+            type: 'Cluster Median',
             color: '#1D4ED8',
           },
         ]
       : []),
-    ...(p_market.value !== null
+    ...(market && market.price !== null && market.price > 0
       ? [
           {
-            name: 'P_MARKET',
-            price: p_market.value,
-            type: 'Market Stream',
+            name: 'Spot Market',
+            price: market.price,
+            type: 'Real-Time CLOB',
             color: '#D97706',
           },
         ]
@@ -73,22 +76,23 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
   // Calculate domain min/max
   const streamPrices: number[] = [];
   timeSeries.forEach((pt) => {
+    if (pt.p_multipli != null) streamPrices.push(pt.p_multipli);
+    if (pt.p_consensus != null) streamPrices.push(pt.p_consensus);
+    if (pt.p_market != null) streamPrices.push(pt.p_market);
     if (pt.p_osm != null) streamPrices.push(pt.p_osm);
     if (pt.p_dec != null) streamPrices.push(pt.p_dec);
-    if (pt.p_market != null) streamPrices.push(pt.p_market);
   });
-  if (p_osm.value) streamPrices.push(p_osm.value);
-  if (p_dec.value) streamPrices.push(p_dec.value);
-  if (p_market.value) streamPrices.push(p_market.value);
+  if (multipli?.price) streamPrices.push(multipli.price);
+  if (consensus?.consensus_price) streamPrices.push(consensus.consensus_price);
+  if (market?.price) streamPrices.push(market.price);
 
-  const minPrice = streamPrices.length ? Math.floor(Math.min(...streamPrices) * 0.98) : 85;
-  const maxPrice = streamPrices.length ? Math.ceil(Math.max(...streamPrices) * 1.02) : 105;
+  const minPrice = streamPrices.length ? Math.floor(Math.min(...streamPrices) * 0.98) : 3800;
+  const maxPrice = streamPrices.length ? Math.ceil(Math.max(...streamPrices) * 1.02) : 4500;
 
   return (
-    <div className="bg-surface border border-borderHairline rounded shadow-card p-4">
-      
+    <div className="bg-surface border border-borderHairline rounded shadow-card p-4 space-y-3">
       {/* Chart Header & View Mode Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-borderHairline pb-2.5">
         <div className="flex items-center space-x-2">
           {viewMode === 'STREAM' ? (
             <TrendingUp className="w-4 h-4 text-blue-600" />
@@ -97,26 +101,25 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
           )}
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">
             {viewMode === 'STREAM'
-              ? 'Real-Time Verification Window Trajectory & Confidence Band'
-              : 'Valuation Dispersion & Cross-Lane Alignment'}
+              ? 'Multi-Oracle Time-Series Trajectory & Agreement Band'
+              : 'Cross-Oracle Valuation Dispersion & Alignment'}
           </h3>
         </div>
 
         <div className="flex items-center space-x-3 text-[11px]">
-          
           {/* Legend */}
           <div className="hidden sm:flex items-center gap-2.5 font-mono text-slate-600">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-0.5 bg-slate-600 inline-block" />
-              P_OSM
+              <span className="w-2.5 h-0.5 bg-purple-600 inline-block" />
+              Multipli OSM
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-0.5 bg-blue-600 inline-block" />
-              P_DEC (&plusmn;{uncertaintyHalfWidth.toFixed(2)})
+              Consensus Median
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-0.5 bg-amber-600 inline-block" />
-              P_MARKET
+              Spot Reference
             </span>
           </div>
 
@@ -140,10 +143,9 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Lane Dispersion
+              Feed Dispersion
             </button>
           </div>
-
         </div>
       </div>
 
@@ -153,7 +155,7 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
           {viewMode === 'STREAM' && timeSeries.length > 0 ? (
             <ComposedChart
               data={timeSeries}
-              margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+              margin={{ top: 10, right: 10, left: -10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
               <XAxis
@@ -175,25 +177,29 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     const pt = payload[0].payload as TimeSeriesPoint;
+                    const multipliVal = pt.p_multipli ?? pt.p_osm;
+                    const consensusVal = pt.p_consensus ?? pt.p_dec;
+                    const marketVal = pt.p_market;
                     return (
                       <div className="bg-surface border border-borderHairline p-2.5 rounded shadow-lg text-xs font-mono">
                         <div className="font-semibold text-slate-900 mb-1 border-b pb-1 font-sans">
                           Minute {pt.minute} ({label})
                         </div>
-                        {pt.p_osm != null && (
-                          <div className="text-slate-600">
-                            P_OSM: <span className="font-bold">${pt.p_osm.toFixed(2)}</span>
+                        {multipliVal != null && (
+                          <div className="text-purple-700">
+                            Multipli OSM: <span className="font-bold">${multipliVal.toFixed(2)}</span>
                           </div>
                         )}
-                        <div className="text-blue-700">
-                          P_DEC: <span className="font-bold">${pt.p_dec.toFixed(2)}</span>
-                          <span className="text-[10px] text-blue-500 ml-1">
-                            [&plusmn;${uncertaintyHalfWidth.toFixed(2)}]
-                          </span>
-                        </div>
-                        <div className="text-amber-700">
-                          P_MARKET: <span className="font-bold">${pt.p_market.toFixed(2)}</span>
-                        </div>
+                        {consensusVal != null && (
+                          <div className="text-blue-700">
+                            Consensus Median: <span className="font-bold">${consensusVal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {marketVal != null && (
+                          <div className="text-amber-700">
+                            Spot Reference: <span className="font-bold">${marketVal.toFixed(2)}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -201,37 +207,37 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                 }}
               />
               
-              {/* Shaded P_DEC Uncertainty Area */}
+              {/* Shaded Agreement Band */}
               <Area
                 type="monotone"
-                dataKey="uncertainty_upper"
+                dataKey="cluster_max"
                 stroke="none"
                 fill="#3B82F6"
                 fillOpacity={0.12}
-                name="Uncertainty Band"
+                name="Cluster Agreement Band"
               />
               
-              {/* Stale Baseline P_OSM Line */}
+              {/* Delayed Multipli OSM Line */}
               <Line
                 type="stepAfter"
-                dataKey="p_osm"
-                stroke="#475569"
-                strokeWidth={2}
+                dataKey={(d) => d.p_multipli ?? d.p_osm}
+                stroke="#7C3AED"
+                strokeWidth={2.5}
                 dot={false}
-                name="P_OSM (Baseline)"
+                name="Multipli OSM (Delayed Buffer)"
               />
               
-              {/* Live Decentralized P_DEC Line */}
+              {/* Cross-Oracle Consensus Line */}
               <Line
                 type="monotone"
-                dataKey="p_dec"
+                dataKey={(d) => d.p_consensus ?? d.p_dec}
                 stroke="#2563EB"
                 strokeWidth={2.5}
                 dot={{ r: 2, fill: '#2563EB' }}
-                name="P_DEC (Median)"
+                name="Consensus Median"
               />
 
-              {/* Attested Live P_MARKET Line */}
+              {/* Spot Market Line */}
               <Line
                 type="monotone"
                 dataKey="p_market"
@@ -239,13 +245,13 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                 strokeWidth={2}
                 strokeDasharray="4 2"
                 dot={{ r: 2, fill: '#D97706' }}
-                name="P_MARKET"
+                name="Spot Reference"
               />
             </ComposedChart>
           ) : (
             <ComposedChart
               data={dispersionData}
-              margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+              margin={{ top: 10, right: 10, left: -10, bottom: 20 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
               <XAxis
@@ -273,13 +279,8 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                         <div className="font-mono text-slate-700">
                           Price: <span className="font-bold">${pt.price ? pt.price.toFixed(2) : '--'}</span>
                         </div>
-                        {pt.lower && (
-                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            Range: [${pt.lower.toFixed(2)} &ndash; ${pt.upper.toFixed(2)}]
-                          </div>
-                        )}
                         <div className="text-[10px] text-slate-400 mt-1 uppercase font-mono">
-                          Type: {pt.type}
+                          Role: {pt.type}
                         </div>
                       </div>
                     );
@@ -287,15 +288,15 @@ export const ComparisonChart: React.FC<ComparisonChartProps> = ({
                   return null;
                 }}
               />
-              {p_market.value !== null && (
+              {consensus.consensus_price !== null && (
                 <ReferenceLine
-                  y={p_market.value}
-                  stroke="#D97706"
+                  y={consensus.consensus_price}
+                  stroke="#2563EB"
                   strokeDasharray="3 3"
                   label={{
-                    value: `Market: $${p_market.value.toFixed(2)}`,
+                    value: `Consensus: $${consensus.consensus_price.toFixed(2)}`,
                     position: 'insideTopRight',
-                    fill: '#D97706',
+                    fill: '#2563EB',
                     fontSize: 10,
                   }}
                 />
