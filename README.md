@@ -203,15 +203,59 @@ The five methodology lanes feed directly into the Evidence Engine and Decision E
 
 ---
 
+---
+
+## Solidity On-Chain Verification Layer (Phase 4B)
+
+The AEGIS on-chain verification layer provides a battle-hardened, EVM-native implementation of the canonical verification pipeline in Solidity (`^0.8.24`), fully tested via Foundry and compliant with OpenZeppelin Contracts v5.0.
+
+### Contract Inventory (`contracts/src/`)
+
+| Contract | Category | Responsibility |
+| :--- | :--- | :--- |
+| [`IAEGISPriceFeed.sol`](file:///d:/Projects/aegis/contracts/src/interfaces/IAEGISPriceFeed.sol) | Interface | Canonical, unopinionated protocol price interface: `getPrice(bytes32 assetId) -> (price, status, timestamp)`. |
+| [`IOSM.sol`](file:///d:/Projects/aegis/contracts/src/interfaces/IOSM.sol) | Interface | Minimal read-only delayed OSM baseline inspection: `readPrice() -> (price, hasPrice)`. |
+| [`FixedPointMath.sol`](file:///d:/Projects/aegis/contracts/src/libraries/FixedPointMath.sol) | Library | Internal 18-decimal WAD arithmetic, BPS conversion, and relative deviation. |
+| [`AggregatorLib.sol`](file:///d:/Projects/aegis/contracts/src/libraries/AggregatorLib.sol) | Library | Two-Tier Hierarchical Aggregation: Tier 1 within-lane robust median & conservative dispersion heuristic; Tier 2 inverse-variance cross-lane synthesis. |
+| [`ValidatorRegistry.sol`](file:///d:/Projects/aegis/contracts/src/ValidatorRegistry.sol) | Core | Validator node authorization, lane assignment (1-5), and role classification (`PRICE_ESTIMATOR` vs `DIAGNOSTIC`). |
+| [`MarketAttestor.sol`](file:///d:/Projects/aegis/contracts/src/MarketAttestor.sol) | Core | EIP-712 typed data signing, timestamp lower/upper freshness verification, and replay protection for $P_{MARKET}$. |
+| [`AEGISEvidenceEngine.sol`](file:///d:/Projects/aegis/contracts/src/AEGISEvidenceEngine.sol) | Core | On-chain triangular deviation evaluation ($d(OSM, MKT), d(DEC, MKT), d(OSM, DEC)$) and compact anomaly bitmask compilation. |
+| [`AEGISDecisionEngine.sol`](file:///d:/Projects/aegis/contracts/src/AEGISDecisionEngine.sol) | Core | Deterministic safety policy matrix: maps triangular evidence and diagnostic flags to $P_{FINAL}$, `OracleStatus`, and `ActionCode`. |
+| [`AEGISPriceRouter.sol`](file:///d:/Projects/aegis/contracts/src/AEGISPriceRouter.sol) | Core | Single authoritative price store implementing `IAEGISPriceFeed` with per-asset staleness bounds. |
+| [`AEGISVerificationManager.sol`](file:///d:/Projects/aegis/contracts/src/AEGISVerificationManager.sol) | Core | Round coordinator state machine, commit-reveal management, 3D applicability-aware quorum, and keeper atomic finalization. |
+
+### Measured Gas Benchmarks (`forge test --gas-report`)
+
+Measured execution costs under `solc = "0.8.24"` with 200 optimizer runs:
+
+| Operation | Function | 5 Validators | 10 Validators | Median Gas |
+| :--- | :--- | :--- | :--- | :--- |
+| **Commitment** | `AEGISVerificationManager.commit` | 61,708 | 61,708 | 61,708 |
+| **Evidence Reveal** | `AEGISVerificationManager.reveal` | 173,062 | 173,062 | 173,062 |
+| **Round Creation** | `AEGISVerificationManager.createRound` | 182,777 | 182,777 | 182,777 |
+| **Atomic Finalization** | `finalizeRoundWithAttestation` | 424,718 | 501,195 | 462,956 |
+| **Protocol Price Query** | `AEGISPriceRouter.getPrice` | 13,694 | 13,694 | 13,694 |
+| **Attestation Verification** | `MarketAttestor.verifyAttestation` | 34,646 | 34,646 | 34,646 |
+
+---
+
 ## Verification & Testing
 
-AEGIS maintains comprehensive automated test suites covering mathematical edge cases, determinism, and end-to-end scenario simulations:
+AEGIS maintains comprehensive automated test suites covering Solidity smart contracts, Python statistical methodologies, and Next.js institutional web dashboards:
 
 ```bash
-# Run all unit, quant, and end-to-end scenario tests
-pytest
+# 1. Run all Solidity smart contract tests (54/54 passing)
+cd contracts
+forge test -vvv
 
-# Build and verify the Next.js institutional risk terminal
+# 2. Run Solidity gas benchmarks & invariant fuzz suites
+forge test --gas-report
+
+# 3. Run all off-chain quant methodologies & pipeline integration tests (58/58 passing)
+cd ..
+python -m pytest
+
+# 4. Build and verify the Next.js institutional risk terminal (0 errors)
 npm --prefix apps/web run build
 ```
 

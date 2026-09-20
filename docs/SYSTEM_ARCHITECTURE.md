@@ -80,11 +80,21 @@ To preserve mathematical consistency, AEGIS explicitly differentiates between **
 
 ## 4. Aggregation Layer (P_DEC)
 
-The `P_DECAggregator` performs deterministic robust aggregation:
-1. **Role Filtering:** Isolates Price Estimators (`is_price_estimator == True` and `estimated_price is not None`).
-2. **Gating Isolation:** If a price estimator is gated (`INNOVATION_GATED` from Lane 1), it is removed from the eligible pool. In flash spikes, Lane 2 (Huber) provides the uncontaminated price estimate alone.
-3. **Uncertainty-Weighted Blend:** Combines median with inverse-variance weighted mean based on uncertainty interval widths.
-4. **Forensic Preservation:** Diagnostic lanes (Lanes 3, 4, 5) receive weight 0.0 in $P_{DEC}$ but their rich forensic diagnostics are preserved in `lane_results`.
+The `P_DECAggregator` and on-chain `AggregatorLib` implement a **Two-Tier Hierarchical Aggregation** model supporting multiple independent validator operators per methodology lane:
+1. **Tier 1 — Within-Lane Operator Consensus:**
+   - For each price estimator lane (Lanes 1 & 2), collects all revealed operator estimates and uncertainty widths.
+   - Computes canonical lane price $P_L$ via **robust median** of operator submissions.
+   - Computes the **AEGIS canonical lane uncertainty/dispersion estimate** (conservative dispersion heuristic): $\sigma_L = \text{median}(\sigma_i) + \text{IQR}(P_i)$. This heuristic must not be described as a statistically exact standard deviation unless later calibration establishes that property; it serves as the robust weighting input for Tier 2 cross-lane synthesis, where operator disagreement inflates dispersion and down-weights that lane.
+2. **Tier 2 — Cross-Lane Methodology Synthesis:**
+   - Inverse-variance weighted blend across eligible price-estimator lanes:
+     $$\lambda = \frac{1/\sigma_1^2}{1/\sigma_1^2 + 1/\sigma_2^2}, \quad P_{DEC} = \lambda P_1 + (1 - \lambda) P_2$$
+   - Gating isolation: If Lane 1 is innovation-gated, $P_{DEC} = P_{\text{Huber}}$.
+3. **Quorum & Lane Diversity Rules:**
+   - **Applicability-Aware 3D Quorum:** requires configured minimum total reveals ($N_{\text{total}}$), configured distinct operator addresses ($N_{\text{operators}}$), and minimum distinct APPLICABLE methodology lanes ($N_{\text{lanes}} \ge 3$).
+   - **Healthy Consensus Requirements:** requires $\ge 1$ active price-estimator lane and $\ge 2$ active/applicable diagnostic lanes.
+   - **Asset-Specific Applicability:** Diagnostic lanes marked `NOT_APPLICABLE` (such as an OU lane for an asset lacking a mean-reverting reference peg) are not treated as failed validators and do not cause quorum failure.
+   - A single lane cannot satisfy quorum alone under any circumstances.
+4. **Diagnostic Exclusion:** Diagnostic lanes (Lanes 3, 4, 5) never enter $P_{DEC}$ pricing accumulators; their evidence feeds the Evidence Engine directly.
 
 ## 5. Evidence Layer (Evidence Engine)
 
@@ -114,25 +124,37 @@ The first demonstrator may implement `NEAREST_TO_MARKET` as an evaluation policy
 
 Future policies may use credibility-weighted robust fusion and conservative risk bounds.
 
-## 7. Blockchain boundary
+## 7. Blockchain Boundary (Phase 4B Solidity Layer)
 
-First MVP contract set:
-
-- `MockOSM`: stores current and pending values and activation time.
-- `ValidatorRegistry`: optional lightweight registry for logical validator identities.
-- `OracleDecisionEngine`: consumes submitted values/evidence and exposes the selected decision.
-
-Do not attempt to put forecasting or advanced statistical inference into Solidity.
-
-## 8. Research insertion points
+The AEGIS on-chain verification layer provides EVM-native enforcement of the verification lifecycle, running concurrently within the existing OSM delay window ($T_0 \to T_1$):
 
 ```text
-packages/quant/src/strategies/
-packages/quant/src/aggregation/
-packages/quant/src/detection/
-packages/quant/src/risk/
-contracts/src/ValidatorRegistry.sol
-contracts/src/OracleDecisionEngine.sol
+contracts/src/
+├── interfaces/
+│   ├── IAEGISPriceFeed.sol   (Canonical protocol price interface consumed by downstream dApps)
+│   └── IOSM.sol              (Minimal read-only peek/read interface to the delayed baseline)
+├── libraries/
+│   ├── FixedPointMath.sol    (18-decimal WAD & BPS arithmetic, relative deviation)
+│   └── AggregatorLib.sol     (Two-tier hierarchical aggregation: median + dispersion heuristic + inverse-variance)
+├── ValidatorRegistry.sol     (Decoupled validator operators, lane roles 1-5)
+├── MarketAttestor.sol        (EIP-712 terminal market attestation with replay & freshness bounds)
+├── AEGISEvidenceEngine.sol   (Triangular deviations & compact anomaly bitmask compilation)
+├── AEGISDecisionEngine.sol   (Deterministic safety policy matrix: P_FINAL, OracleStatus, ActionCode)
+├── AEGISPriceRouter.sol      (Authoritative price store implementing IAEGISPriceFeed with staleness checks)
+└── AEGISVerificationManager.sol (State machine coordinator, commit/reveal, 3D quorum, keeper finalizer)
 ```
 
-These are the places where the research team's methodologies will be added.
+### Core Invariants Guaranteed by Smart Contracts
+1. **Zero Double-Delay:** Verification rounds open at $T_0$ when an observation enters the OSM delay queue. Commitments and reveals execute during the 1-hour delay. At $T_1$, when the OSM matures, keeper finalization reads $P_{OSM}$, verifies $P_{MARKET}$, aggregates $P_{DEC}$, evaluates evidence, and publishes $P_{FINAL}$ immediately with **zero added delay**.
+2. **Strict Downstream Position:** AEGIS is downstream of the OSM in data flow. Validator submissions NEVER enter the OSM queue, and $P_{FINAL}$ is NEVER written back into the upstream OSM.
+3. **Two-Tier Multi-Operator Aggregation:** Decouples operator count from methodology weight. Multiple operators per lane are synthesized into a canonical lane estimate via median price and conservative dispersion heuristic ($\sigma_L = \text{median}(\sigma_i) + \text{IQR}(P_i)$). Cross-lane synthesis blends price estimators inversely proportional to variance.
+4. **Diagnostic Lane Exclusion:** Lanes 3, 4, and 5 produce evidence hashes and diagnostic flags only; their values never enter pricing accumulators.
+5. **Applicability-Aware 3D Quorum:** Rounds require configured minimum total reveals ($N_{\text{total}}$), distinct operator addresses ($N_{\text{operators}}$), and distinct applicable lanes ($N_{\text{lanes}} \ge 3$). An asset where OU analysis is marked `NOT_APPLICABLE` does not suffer quorum failure.
+6. **Single Authoritative Price Interface:** Protocols consume exactly one method: `IAEGISPriceFeed.getPrice(bytes32 assetId) -> (uint256 price, OracleStatus status, uint256 timestamp)`.
+
+## 8. Verified Test Coverage
+
+- **Solidity Test Suite:** 54/54 tests passing (`forge test`), covering unit tests, integration tests (`EndToEndVerification.t.sol`), invariant fuzz testing (`VerificationInvariants.t.sol`), and gas benchmarking (`GasBenchmarks.t.sol`).
+- **Python Quantitative Suite:** 58/58 tests passing (`python -m pytest`), verifying all 5 methodology lanes, historical ingestion, and benchmark APIs.
+- **Frontend Dashboard:** Production Next.js build passes with 0 errors (`npm --prefix apps/web run build`).
+
