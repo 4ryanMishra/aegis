@@ -242,3 +242,19 @@ class CustomVerificationRequest(BaseModel):
     ltv_factor: float = Field(default=0.60, ge=0.05, le=0.99)
     validator_estimates: Optional[List[float]] = Field(default=None)
     policy: DecisionPolicy = Field(default=DecisionPolicy.NEAREST_TO_MARKET)
+
+
+class SimulationResetRequest(BaseModel):
+    scenario_id: Optional[str] = Field(default="scen_normal")
+    ltv_factor: Optional[float] = Field(default=0.80)
+    seed: Optional[int] = Field(default=42)
+
+
+class SimulationStepRequest(BaseModel):
+    delta_seconds: Optional[float] = Field(default=900.0)
+
+
+class SimulationConfigRequest(BaseModel):
+    speed_multiplier: Optional[float] = Field(default=60.0)
+    scenario_id: Optional[str] = None
+    ltv_factor: Optional[float] = None

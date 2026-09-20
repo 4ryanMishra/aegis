@@ -1,8 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { ScenarioRecord, ScenarioListItem, ValidatorObservation } from '@/lib/types';
-import { fetchScenarios, runScenario } from '@/lib/api-client';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ScenarioListItem,
+  ValidatorObservation,
+  SimulationSnapshot,
+  ScenarioRecord,
+} from '@/lib/types';
+import {
+  fetchScenarios,
+  fetchSimulationState,
+  startSimulation,
+  pauseSimulation,
+  resetSimulation,
+  stepSimulation,
+  finalizeSimulation,
+  configSimulation,
+} from '@/lib/api-client';
 import { TerminalHeader } from '@/components/terminal-header';
 import { OracleStrip } from '@/components/oracle-strip';
 import { VerificationTimeline } from '@/components/verification-timeline';
@@ -10,13 +24,15 @@ import { ValidatorMatrix } from '@/components/validator-matrix';
 import { ComparisonChart } from '@/components/comparison-chart';
 import { DecisionPanel } from '@/components/decision-panel';
 import { ProvenanceDrawer } from '@/components/provenance-drawer';
+import { LiveEventFeed } from '@/components/live-event-feed';
+import { SystemInterpretation } from '@/components/system-interpretation';
 
 export default function RiskTerminalPage() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([]);
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scen_normal_consensus');
-  const [currentScenario, setCurrentScenario] = useState<ScenarioRecord | null>(null);
-  const [ltv, setLtv] = useState<number>(0.60);
-  const [stepSeconds, setStepSeconds] = useState<number>(3600);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>('scen_normal');
+  const [snapshot, setSnapshot] = useState<SimulationSnapshot | null>(null);
+  const [ltv, setLtv] = useState<number>(0.80);
+  const [speedMultiplier, setSpeedMultiplier] = useState<number>(60);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   
   // Drawer state
@@ -25,15 +41,26 @@ export default function RiskTerminalPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Load scenarios on mount
+  // Load scenarios and initial simulation state on mount
   useEffect(() => {
     async function init() {
       try {
         setErrorMsg(null);
-        const list = await fetchScenarios();
+        const [list, initialState] = await Promise.all([
+          fetchScenarios(),
+          fetchSimulationState().catch(() => null),
+        ]);
         setScenarios(list);
-        if (list.length > 0) {
+        if (initialState) {
+          setSnapshot(initialState);
+          setSelectedScenarioId(initialState.scenario_id);
+          setLtv(initialState.ltv);
+          setSpeedMultiplier(initialState.speed_multiplier);
+        } else if (list.length > 0) {
           setSelectedScenarioId(list[0].scenario_id);
+          if (list[0].ltv_default) setLtv(list[0].ltv_default);
+          const fresh = await resetSimulation(list[0].scenario_id, list[0].ltv_default || 0.80);
+          setSnapshot(fresh);
         }
       } catch (err: any) {
         console.error('Failed to init scenarios:', err);
@@ -43,43 +70,119 @@ export default function RiskTerminalPage() {
     init();
   }, []);
 
-  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
-
-  // Run simulation when scenario, LTV, step, or manual trigger changes
+  // Continuous Simulation Polling Loop
+  // Polls backend snapshot every 600ms when is_running is true
   useEffect(() => {
-    async function loadData() {
-      if (!selectedScenarioId) return;
-      setIsLoading(true);
-      try {
-        setErrorMsg(null);
-        const record = await runScenario(selectedScenarioId, ltv, stepSeconds);
-        setCurrentScenario(record);
-      } catch (err: any) {
-        console.error('Failed to run scenario:', err);
-        setErrorMsg(err?.message || 'Failed to execute scenario verification');
-      } finally {
-        setIsLoading(false);
-      }
+    let intervalId: NodeJS.Timeout | null = null;
+
+    if (snapshot?.is_running && !snapshot?.is_finalized) {
+      intervalId = setInterval(async () => {
+        try {
+          const freshState = await fetchSimulationState();
+          setSnapshot(freshState);
+        } catch (err) {
+          console.error('Simulation poll error:', err);
+        }
+      }, 600);
     }
-    loadData();
-  }, [selectedScenarioId, ltv, stepSeconds, refreshTrigger]);
 
-  const handleReset = () => {
-    setStepSeconds(0);
-    setRefreshTrigger((prev) => prev + 1);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [snapshot?.is_running, snapshot?.is_finalized]);
+
+  // Handler: Start / Pause Toggle
+  const handleTogglePlay = async () => {
+    if (!snapshot) return;
+    try {
+      if (snapshot.is_running) {
+        const fresh = await pauseSimulation();
+        setSnapshot(fresh);
+      } else {
+        const fresh = await startSimulation();
+        setSnapshot(fresh);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to toggle simulation play state');
+    }
   };
 
-  const handleStep = () => {
-    setStepSeconds((prev) => {
-      if (prev >= 3600) return 0;
-      return Math.min(3600, prev + 900);
-    });
-    setRefreshTrigger((prev) => prev + 1);
+  // Handler: Reset Simulation
+  const handleReset = async () => {
+    setIsLoading(true);
+    try {
+      const fresh = await resetSimulation(selectedScenarioId, ltv);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to reset simulation');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleFinalize = () => {
-    setStepSeconds(3600); // 60 min
-    setRefreshTrigger((prev) => prev + 1);
+  // Handler: Step +15m (Advanced Demo Control)
+  const handleStep = async () => {
+    setIsLoading(true);
+    try {
+      const fresh = await stepSimulation(900.0);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to step simulation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handler: Finalize Window
+  const handleFinalize = async () => {
+    setIsLoading(true);
+    try {
+      const fresh = await finalizeSimulation();
+      setSnapshot(fresh);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to finalize simulation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handler: Scenario Selection
+  const handleSelectScenario = async (id: string) => {
+    setSelectedScenarioId(id);
+    const matched = scenarios.find((s) => s.scenario_id === id);
+    const newLtv = matched?.ltv_default || 0.80;
+    setLtv(newLtv);
+    setIsLoading(true);
+    try {
+      const fresh = await resetSimulation(id, newLtv);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to switch scenario');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handler: Speed Change
+  const handleChangeSpeed = async (speed: number) => {
+    setSpeedMultiplier(speed);
+    try {
+      const fresh = await configSimulation(speed, selectedScenarioId, ltv);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      console.error('Failed to change speed:', err);
+    }
+  };
+
+  // Handler: LTV Change
+  const handleChangeLtv = async (newLtv: number) => {
+    setLtv(newLtv);
+    try {
+      const fresh = await configSimulation(speedMultiplier, selectedScenarioId, newLtv);
+      setSnapshot(fresh);
+    } catch (err: any) {
+      console.error('Failed to change LTV:', err);
+    }
   };
 
   const handleInspect = (target: string | ValidatorObservation) => {
@@ -87,7 +190,7 @@ export default function RiskTerminalPage() {
     setIsDrawerOpen(true);
   };
 
-  if (errorMsg && !currentScenario) {
+  if (errorMsg && !snapshot) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg max-w-lg shadow-sm">
@@ -104,15 +207,36 @@ export default function RiskTerminalPage() {
     );
   }
 
-  if (!currentScenario) {
+  if (!snapshot) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center text-xs font-mono text-slate-500">
-        INITIALIZING AEGIS VERIFICATION RUNTIME...
+        INITIALIZING AEGIS VERIFICATION ENGINE RUNTIME...
       </div>
     );
   }
 
-  const elapsedMinutes = Math.round(currentScenario.window.elapsed_seconds / 60);
+  // Cast snapshot to ScenarioRecord for child components that expect it
+  const scenarioRecord: ScenarioRecord = {
+    scenario_id: snapshot.scenario_id,
+    title: snapshot.title,
+    description: snapshot.description,
+    asset: snapshot.asset,
+    window: {
+      start_ts: 1774000000,
+      end_ts: 1774000000 + snapshot.window_duration_seconds,
+      duration_seconds: snapshot.window_duration_seconds,
+      elapsed_seconds: snapshot.simulation_time_seconds,
+      is_finalized: snapshot.is_finalized,
+    },
+    p_osm: snapshot.p_osm,
+    validators: snapshot.validators,
+    p_dec: snapshot.p_dec,
+    p_market: snapshot.p_market,
+    evidence: snapshot.evidence,
+    decision: snapshot.decision,
+    collateral: snapshot.collateral,
+    intermediate_telemetry: snapshot.lane_telemetry,
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -121,22 +245,24 @@ export default function RiskTerminalPage() {
       <TerminalHeader
         scenarios={scenarios}
         selectedScenarioId={selectedScenarioId}
-        onSelectScenario={(id) => {
-          setSelectedScenarioId(id);
-          const matched = scenarios.find((s) => s.scenario_id === id);
-          if (matched && matched.ltv_default) {
-            setLtv(matched.ltv_default);
-          }
-          setStepSeconds(0);
-          setRefreshTrigger((prev) => prev + 1);
-        }}
+        onSelectScenario={handleSelectScenario}
         ltv={ltv}
-        onChangeLtv={setLtv}
+        onChangeLtv={handleChangeLtv}
         onReset={handleReset}
         onStep={handleStep}
         onFinalize={handleFinalize}
-        elapsedMinutes={elapsedMinutes}
-        isFinalized={currentScenario.window.is_finalized}
+        onTogglePlay={handleTogglePlay}
+        isRunning={snapshot.is_running}
+        isPaused={snapshot.is_paused}
+        simulationTimeFormatted={snapshot.simulation_time_formatted}
+        elapsedMinutes={snapshot.elapsed_minutes}
+        speedMultiplier={speedMultiplier}
+        onChangeSpeed={handleChangeSpeed}
+        activeValidatorsCount={snapshot.active_validators_count}
+        totalValidatorsCount={snapshot.total_validators_count}
+        totalObservations={snapshot.total_observations}
+        currentBlock={snapshot.current_block}
+        isFinalized={snapshot.is_finalized}
         isLoading={isLoading}
       />
 
@@ -147,48 +273,75 @@ export default function RiskTerminalPage() {
         <div className="bg-surface border border-borderHairline p-3.5 rounded flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-slate-900 text-sm">{currentScenario.title}</span>
-              <span className="font-mono text-slate-500">[{currentScenario.asset}]</span>
+              <span className="font-bold text-slate-900 text-sm">{snapshot.title}</span>
+              <span className="font-mono text-slate-500">[{snapshot.asset}]</span>
             </div>
             <p className="text-secondaryText mt-0.5 leading-relaxed">
-              {currentScenario.description}
+              {snapshot.description}
             </p>
           </div>
           <div className="text-[11px] font-mono text-slate-500 bg-slate-50 px-3 py-1.5 rounded border border-borderHairline whitespace-nowrap">
-            WINDOW ID: {currentScenario.scenario_id}
+            WINDOW ID: {snapshot.scenario_id}
           </div>
         </div>
 
         {/* 1. Oracle State Strip */}
         <OracleStrip
-          scenario={currentScenario}
+          scenario={scenarioRecord}
+          uncertaintyHalfWidth={snapshot.p_dec_uncertainty_half_width}
           onInspect={handleInspect}
         />
 
         {/* 2. Verification Window Progression Timeline */}
         <VerificationTimeline
-          scenario={currentScenario}
+          scenario={scenarioRecord}
         />
 
         {/* 3. Main Operational Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           
-          {/* Left Column: Validator Matrix & Valuation Chart (7 cols) */}
+          {/* Left Column: Valuation Chart & Validator Matrix (7 cols) */}
           <div className="lg:col-span-7 space-y-5">
+            
+            {/* Live Time Series Stream Chart */}
+            <ComparisonChart
+              scenario={scenarioRecord}
+              timeSeries={snapshot.time_series}
+              uncertaintyHalfWidth={snapshot.p_dec_uncertainty_half_width}
+            />
+
+            {/* Validator Matrix */}
             <ValidatorMatrix
-              validators={currentScenario.validators}
+              validators={scenarioRecord.validators}
               onInspectValidator={handleInspect}
             />
-            <ComparisonChart
-              scenario={currentScenario}
-            />
+
           </div>
 
-          {/* Right Column: Evidence Engine & Collateral Impact (5 cols) */}
-          <div className="lg:col-span-5">
-            <DecisionPanel
-              scenario={currentScenario}
+          {/* Right Column: Interpretation, Live Events & Decision Panel (5 cols) */}
+          <div className="lg:col-span-5 space-y-5">
+            
+            {/* Dynamic System Interpretation ("What Just Happened?") */}
+            <SystemInterpretation
+              interpretation={snapshot.interpretation}
+              oracleStatus={snapshot.evidence.oracle_status}
+              decision={snapshot.decision}
+              collateral={snapshot.collateral}
+              isFinalized={snapshot.is_finalized}
+              simulationTimeFormatted={snapshot.simulation_time_formatted}
             />
+
+            {/* Live Event Stream Panel */}
+            <LiveEventFeed
+              events={snapshot.events}
+              isRunning={snapshot.is_running}
+            />
+
+            {/* Decision & Collateral Impact Panel */}
+            <DecisionPanel
+              scenario={scenarioRecord}
+            />
+
           </div>
 
         </div>
@@ -200,7 +353,7 @@ export default function RiskTerminalPage() {
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         inspectTarget={inspectTarget}
-        scenario={currentScenario}
+        scenario={scenarioRecord}
       />
 
       {/* Footer */}
@@ -208,12 +361,12 @@ export default function RiskTerminalPage() {
         <div className="flex items-center space-x-2">
           <span className="font-bold text-slate-800 font-mono">AEGIS v0.1.0-mvp</span>
           <span>&bull;</span>
-          <span>Rethinking Blockchain Oracles Research Prototype</span>
+          <span>Adaptive Oracle Verification Engine Research Prototype</span>
         </div>
-        <div className="flex items-center space-x-4">
-          <span className="font-mono">P_OSM: Baseline</span>
-          <span className="font-mono">P_DEC: Validator Aggregate</span>
-          <span className="font-mono">P_MARKET: Off-Chain Observation</span>
+        <div className="flex items-center space-x-4 font-mono">
+          <span>P_OSM: Baseline</span>
+          <span>P_DEC: Validator Median</span>
+          <span>P_MARKET: Off-Chain Observation</span>
         </div>
       </footer>
 

@@ -5,6 +5,7 @@ export type OracleStatus =
   | 'SUSPECTED_INCONSISTENCY'
   | 'EVIDENCE_OF_ABNORMAL_DEVIATION'
   | 'DISPERSED_UNCERTAINTY'
+  | 'HALTED_CIRCUIT_BREAKER'
   | 'PENDING_FINALIZATION'
   | 'VALIDATOR_QUORUM_DEFICIT'
   | 'OUTLIER_CONTAMINATED_CONSENSUS'
@@ -198,6 +199,8 @@ export interface EvidenceRecord {
 export interface DecisionResult {
   policy: DecisionPolicy | string;
   decision?: string;
+  action?: string;
+  dispute_status?: string;
   final_price: number | null;
   selected_source: 'P_OSM' | 'P_DEC' | 'P_MARKET' | 'RESTRICT_HALT' | 'RESTRICT_COLLATERAL_CEILING' | 'CIRCUIT_BREAKER_HALT' | 'PENDING' | string;
   confidence: number | null;
@@ -240,3 +243,66 @@ export interface ScenarioListItem {
   category: 'NORMAL' | 'FLASH_SPIKE' | 'POISONED_VALIDATOR' | 'VALIDATOR_OUTAGE' | 'SLOW_DRIFT' | 'RWA_DEPEG' | string;
   ltv_default: number;
 }
+
+export interface SimulationEvent {
+  timestamp: string;
+  category: string;
+  message: string;
+  severity: 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT' | 'CRITICAL';
+}
+
+export interface TimeSeriesPoint {
+  minute: number;
+  time_label: string;
+  p_osm: number | null;
+  p_dec: number;
+  p_market: number;
+  uncertainty_lower: number;
+  uncertainty_upper: number;
+}
+
+export interface ValidatorNodeStatus {
+  node_id: string;
+  lane_id: number;
+  methodology: string;
+  operator_id: string;
+  status: 'ACTIVE' | 'AWAITING_CADENCE' | 'OFFLINE';
+  last_seen_sec: number;
+  quote: number | null;
+}
+
+export interface SimulationSnapshot {
+  scenario_id: string;
+  title: string;
+  description: string;
+  asset: string;
+  simulation_time_seconds: number;
+  simulation_time_formatted: string;
+  elapsed_minutes: number;
+  window_duration_seconds: number;
+  speed_multiplier: number;
+  is_running: boolean;
+  is_paused: boolean;
+  is_finalized: boolean;
+  total_observations: number;
+  active_validators_count: number;
+  total_validators_count: number;
+  active_lanes_count: number;
+  total_lanes_count: number;
+  current_block: string;
+  ltv: number;
+  p_osm: OSMFeed;
+  p_dec: DECAggregate;
+  p_dec_uncertainty_half_width: number;
+  p_market: MarketObservation;
+  evidence: EvidenceRecord;
+  decision: DecisionResult;
+  collateral: CollateralImpact;
+  validators: ValidatorObservation[];
+  validator_nodes: ValidatorNodeStatus[];
+  lane_telemetry: Record<string, any>;
+  time_series: TimeSeriesPoint[];
+  events: SimulationEvent[];
+  interpretation: string;
+}
+

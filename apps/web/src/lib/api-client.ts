@@ -1,7 +1,156 @@
-import { ScenarioRecord, ScenarioListItem } from './types';
+import { ScenarioRecord, ScenarioListItem, SimulationSnapshot } from './types';
 
 // Use relative path in browser for Next.js proxy rewrite, or direct backend port
 const API_BASE_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000');
+
+export async function fetchSimulationState(): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/state`,
+    'http://127.0.0.1:8000/api/simulation/state',
+    'http://localhost:8000/api/simulation/state'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Try next endpoint fallback
+    }
+  }
+  throw new Error('Failed to fetch simulation state from AEGIS backend');
+}
+
+export async function startSimulation(): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/start`,
+    'http://127.0.0.1:8000/api/simulation/start',
+    'http://localhost:8000/api/simulation/start'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { method: 'POST', cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to start simulation');
+}
+
+export async function pauseSimulation(): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/pause`,
+    'http://127.0.0.1:8000/api/simulation/pause',
+    'http://localhost:8000/api/simulation/pause'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { method: 'POST', cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to pause simulation');
+}
+
+export async function resetSimulation(scenarioId?: string, ltv?: number, seed?: number): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/reset`,
+    'http://127.0.0.1:8000/api/simulation/reset',
+    'http://localhost:8000/api/simulation/reset'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario_id: scenarioId, ltv_factor: ltv, seed: seed || 42 }),
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to reset simulation');
+}
+
+export async function stepSimulation(deltaSeconds: number = 900.0): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/step`,
+    'http://127.0.0.1:8000/api/simulation/step',
+    'http://localhost:8000/api/simulation/step'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta_seconds: deltaSeconds }),
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to step simulation');
+}
+
+export async function finalizeSimulation(): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/finalize`,
+    'http://127.0.0.1:8000/api/simulation/finalize',
+    'http://localhost:8000/api/simulation/finalize'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { method: 'POST', cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to finalize simulation');
+}
+
+export async function configSimulation(speedMultiplier?: number, scenarioId?: string, ltv?: number): Promise<SimulationSnapshot> {
+  const urls = [
+    `${API_BASE_URL}/api/simulation/config`,
+    'http://127.0.0.1:8000/api/simulation/config',
+    'http://localhost:8000/api/simulation/config'
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speed_multiplier: speedMultiplier, scenario_id: scenarioId, ltv_factor: ltv }),
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.state;
+      }
+    } catch {}
+  }
+  throw new Error('Failed to configure simulation');
+}
 
 export async function fetchScenarios(): Promise<ScenarioListItem[]> {
   const urls = [

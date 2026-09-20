@@ -6,13 +6,27 @@ FastAPI REST server implementing endpoints for the AEGIS first vertical slice.
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 try:
-    from services.api.src.models.schema import ScenarioRecord, ScenarioRunRequest
+    from services.api.src.models.schema import (
+        ScenarioRecord,
+        ScenarioRunRequest,
+        SimulationResetRequest,
+        SimulationStepRequest,
+        SimulationConfigRequest,
+    )
     from services.api.src.core.coordinator import VerificationCoordinator
+    from services.api.src.core.simulation_engine import SimulationEngine
     from services.api.src.validators.registry import default_registry
     from services.api.src.config import default_config
 except ImportError:
-    from src.models.schema import ScenarioRecord, ScenarioRunRequest
+    from src.models.schema import (
+        ScenarioRecord,
+        ScenarioRunRequest,
+        SimulationResetRequest,
+        SimulationStepRequest,
+        SimulationConfigRequest,
+    )
     from src.core.coordinator import VerificationCoordinator
+    from src.core.simulation_engine import SimulationEngine
     from src.validators.registry import default_registry
     from src.config import default_config
 
@@ -32,6 +46,7 @@ app.add_middleware(
 )
 
 coordinator = VerificationCoordinator()
+simulation_engine = SimulationEngine()
 
 
 @app.get("/api/health")
@@ -58,6 +73,64 @@ def run_scenario(req: ScenarioRunRequest):
         return coordinator.run_scenario(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------------------------------------------------------------
+# Real-Time Continuous Simulation Engine Endpoints
+# -------------------------------------------------------------
+
+@app.get("/api/simulation/state")
+def get_simulation_state():
+    """Retrieve instantaneous authoritative snapshot of continuous simulation."""
+    try:
+        return simulation_engine.get_snapshot()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/simulation/start")
+def start_simulation():
+    """Start or resume continuous simulation."""
+    simulation_engine.start()
+    return {"status": "RUNNING", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/pause")
+def pause_simulation():
+    """Pause continuous simulation."""
+    simulation_engine.pause()
+    return {"status": "PAUSED", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/reset")
+def reset_simulation(req: SimulationResetRequest):
+    """Reset simulation clock to T0 for the selected scenario."""
+    simulation_engine.reset(scenario_id=req.scenario_id, ltv=req.ltv_factor, seed=req.seed or 42)
+    return {"status": "RESET", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/step")
+def step_simulation(req: SimulationStepRequest):
+    """Advance simulation clock by delta_seconds (e.g. +15m demo step)."""
+    simulation_engine.step(delta_seconds=req.delta_seconds if req.delta_seconds is not None else 900.0)
+    return {"status": "STEPPED", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/finalize")
+def finalize_simulation():
+    """Immediately finalize verification window at 3600s."""
+    simulation_engine.finalize()
+    return {"status": "FINALIZED", "state": simulation_engine.get_snapshot()}
+
+
+@app.post("/api/simulation/config")
+def config_simulation(req: SimulationConfigRequest):
+    """Update speed multiplier or scenario parameters."""
+    if req.speed_multiplier is not None:
+        simulation_engine.set_speed(req.speed_multiplier)
+    if req.scenario_id is not None:
+        simulation_engine.reset(scenario_id=req.scenario_id, ltv=req.ltv_factor)
+    return {"status": "UPDATED", "state": simulation_engine.get_snapshot()}
 
 
 @app.get("/api/strategies")
