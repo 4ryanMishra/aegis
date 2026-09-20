@@ -118,12 +118,23 @@ Write-Host ""
 Write-Host "[3/4] Starting AEGIS forensic frontend..." -ForegroundColor Yellow
 
 # Start Next.js Frontend (Port 3000)
+$NextBuildDir = Join-Path $WebDir ".next"
+if (-not (Test-Path $NextBuildDir)) {
+    Write-Host "  [INFO] Building frontend production bundle..." -ForegroundColor Yellow
+    Push-Location $WebDir
+    try {
+        npm run build
+    } finally {
+        Pop-Location
+    }
+}
+
 $FrontendStartInfo = New-Object System.Diagnostics.ProcessStartInfo
 $FrontendStartInfo.FileName = "npm.cmd"
 if (-not (Get-Command "npm.cmd" -ErrorAction SilentlyContinue)) {
     $FrontendStartInfo.FileName = "npm"
 }
-$FrontendStartInfo.Arguments = "run dev -- -p 3000"
+$FrontendStartInfo.Arguments = "run start -- -p 3000"
 $FrontendStartInfo.WorkingDirectory = $WebDir
 $FrontendStartInfo.UseShellExecute = $false
 $FrontendStartInfo.CreateNoWindow = $true
